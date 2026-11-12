@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+.tools/
+.data/
+*.log
+coverage/
+test-results/
+auto.crt
+auto.key
+*.pem
+*.key
+*.crt

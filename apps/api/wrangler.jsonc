@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dni-directos-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Desarrollo local: D1 y R2 simulados por Miniflare (no requiere cuenta ni Docker).
+  "d1_databases": [
+    { "binding": "DB", "database_name": "dni-directos", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "dni-directos-media" }],
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "APP_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
+    "COOKIE_SECURE": "false",
+    "ALLOW_PRIVATE_DESTINATIONS": "true",
+    "LEASE_TTL_SEC": "20"
+  },
+  "env": {
+    // Producción: sustituir database_id tras `wrangler d1 create dni-directos` (ver docs/OPERATIONS.md).
+    // Secretos (wrangler secret put --env production): ENGINE_TOKEN, ENCRYPTION_KEY.
+    "production": {
+      "d1_databases": [
+        { "binding": "DB", "database_name": "dni-directos", "database_id": "REEMPLAZAR_CON_ID_REAL", "migrations_dir": "migrations" }
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "dni-directos-media" }],
+      "triggers": { "crons": ["* * * * *"] },
+      "assets": { "directory": "../web/dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/v1/*", "/internal/*", "/healthz"] },
+      "vars": {
+        "APP_ORIGINS": "https://REEMPLAZAR_DOMINIO",
+        "COOKIE_SECURE": "true",
+        "ALLOW_PRIVATE_DESTINATIONS": "false",
+        "LEASE_TTL_SEC": "20"
+      }
+    }
+  }
+}

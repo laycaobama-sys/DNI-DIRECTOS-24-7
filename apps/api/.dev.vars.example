@@ -1,0 +1,4 @@
+# Copiar a .dev.vars (ignorado por git). `pnpm tools:setup` genera valores aleatorios automáticamente.
+ENGINE_TOKEN=cambia-esto-por-un-token-aleatorio-largo
+# 32 bytes en base64: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+ENCRYPTION_KEY=
