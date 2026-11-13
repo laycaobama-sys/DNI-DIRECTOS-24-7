@@ -57,6 +57,15 @@ async function failStream(env: Env, s: StreamRow, reason: string) {
 export const internal = new Hono<AppEnv>();
 internal.use('*', engineAuth);
 
+/** Artefactos del motor (bundle y binarios de FFmpeg) para el cargador del contenedor. Direccionados por SHA-256. */
+internal.get('/engine/assets/:name', async (c) => {
+  const assets = JSON.parse(c.env.ENGINE_ASSETS || '{}') as Record<string, string>;
+  const sha = assets[c.req.param('name')];
+  const obj = sha && /^[0-9a-f]{64}$/.test(sha) ? await c.env.MEDIA.get(`system/engine/${sha}`) : null;
+  if (!obj) throw notFound('Artefacto');
+  return new Response(obj.body, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(obj.size), 'x-sha256': sha! } });
+});
+
 // ───────────────────────── Medios ─────────────────────────
 
 internal.post('/media-jobs/claim', async (c) => {

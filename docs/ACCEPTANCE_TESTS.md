@@ -14,7 +14,7 @@ Reproducir: `pnpm install && pnpm tools:setup && pnpm test && pnpm test:e2e-stre
 | 2 | 3 vídeos de códecs distintos + corrupto | **PROBADO** | e2e: H.264 640×360, MPEG-4 1280×720 sin audio, VP9 854×480 → convertidos; miniatura JPEG; corrupto → `unreadable_media`. |
 | 3 | Playlist A→B→C a RTMP, ffprobe, bucle | **PROBADO** | e2e: ffprobe H.264 1280×720 + AAC 48 kHz; orden a→b→c→a; grabación de 24 s con 0 saltos de fotograma. |
 | 4 | Iniciar desde dashboard, cerrar navegador | **PROBADO (manual)** | Inicio desde la UI, pestaña cerrada, ffprobe 20 s después seguía recibiendo señal; estado `live` leído por API. No automatizado. |
-| 5 | Cuotas de concurrencia | **PROBADO** | e2e: 409 `quota_concurrent_streams`, sin procesos FFmpeg nuevos; 403 `quota_destinations`. |
+| 5 | Cuotas de concurrencia (plan `restricted`; el plan por defecto es gratuito y sin límites) | **PROBADO** | e2e: 409 `quota_concurrent_streams`, sin procesos FFmpeg nuevos; 403 `quota_destinations`. |
 | 6 | Dos destinos, cortar uno | **PROBADO** | e2e: `degraded`, destino A con 0 reinicios, B reconecta solo y vuelve a `live`. |
 | 7 | Matar el worker | **PROBADO** | e2e: 0 FFmpeg huérfanos, evento `engine_lost`, otro nodo retoma con fencing nuevo y reanuda posición, heartbeat antiguo → 409. |
 | 8 | Programación Europe/Madrid + DST | **PARCIAL** | Tests unitarios de DST (primavera, otoño, hora inexistente y ambigua). El cron que dispara inicios **no se ha ejercitado**; sin UI. |
@@ -28,7 +28,7 @@ Reproducir: `pnpm install && pnpm tools:setup && pnpm test && pnpm test:e2e-stre
 
 ## No probado o pendiente (resumen honesto)
 
-- Despliegue en Cloudflare (Workers, D1, R2 remotos y Containers): **no realizado**.
+- Despliegue en Cloudflare: D1 creada; **el resto bloqueado** porque la cuenta no tiene R2 ni Workers Paid activados. El nodo de emisión para Containers (`EngineNode`) está escrito y tipado, pero **nunca se ha ejecutado en Cloudflare**.
 - Imagen Docker y `docker-compose.yml`: escritos, **nunca construidos** (no había Docker).
 - Emisión de larga duración: la prueba más larga duró ~2 minutos. No hay ensayo de 24 h ni del reinicio de base de tiempos a las 12 h.
 - Emisión por RTMPS con TLS real y a plataformas reales.

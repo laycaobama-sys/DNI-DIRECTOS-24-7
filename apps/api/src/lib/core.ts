@@ -12,6 +12,14 @@ export interface Env {
   COOKIE_SECURE: string;
   ALLOW_PRIVATE_DESTINATIONS: string;
   LEASE_TTL_SEC: string;
+  ALLOW_SIGNUPS?: string;
+  /** Solo en producción (Cloudflare Containers). */
+  ENGINE?: DurableObjectNamespace;
+  PUBLIC_URL?: string;
+  ENGINE_CAPACITY?: string;
+  ENGINE_MAX_NODES?: string;
+  /** JSON {nombre: sha256} de los artefactos del motor publicados en R2 (lo rellena el script de despliegue). */
+  ENGINE_ASSETS?: string;
 }
 
 export interface AuthCtx { userId: string; orgId: string; role: Role; plan: string; email: string }

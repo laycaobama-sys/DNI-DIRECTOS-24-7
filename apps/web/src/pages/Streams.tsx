@@ -117,7 +117,7 @@ export function StreamNew() {
               </select>
             )}</Field>
           </fieldset>
-          <fieldset><legend className="mb-2 font-semibold">3 · Destinos <span className="font-normal text-ink-500">(máx. {limits.maxDestinationsPerStream} en tu plan)</span></legend>
+          <fieldset><legend className="mb-2 font-semibold">3 · Destinos <span className="font-normal text-ink-500">(hasta {limits.maxDestinationsPerStream} a la vez)</span></legend>
             <ul className="space-y-2">
               {dests.data!.items.map((d) => {
                 const checked = sel.includes(d.id), full = !checked && sel.length >= limits.maxDestinationsPerStream;
@@ -138,7 +138,7 @@ export function StreamNew() {
           <ul className="list-disc space-y-2 pl-5 text-sm text-ink-600 dark:text-ink-300">
             <li>Emite solo contenido del que tengas los derechos.</li>
             <li>YouTube puede no archivar directos de más de 12 horas y considera problemático el contenido repetitivo.</li>
-            <li>El consumo se mide en horas reales de emisión: tu plan incluye {limits.monthlyStreamHours} h al mes.</li>
+            <li>{limits.unlimited ? 'Sin límite de horas ni de emisiones: el canal sigue en el aire hasta que lo detengas.' : `El consumo se mide en horas reales de emisión: tu plan incluye ${limits.monthlyStreamHours} h al mes.`}</li>
           </ul>
           {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300">{error}</p>}
           <Button variant="primary" type="submit" className="w-full" loading={create.isPending} disabled={missing.length > 0 || sel.length === 0}>Crear emisión</Button>

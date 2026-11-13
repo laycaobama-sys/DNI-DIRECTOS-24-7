@@ -1,7 +1,7 @@
 import { type FormEvent, type ReactNode, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, CalendarClock, CreditCard, FolderOpen, LayoutDashboard, ListVideo, LogOut, Menu, Moon, Palette, Radio, Send, Settings, Sun, Users, Code2, X } from 'lucide-react';
+import { BarChart3, CalendarClock, FolderOpen, LayoutDashboard, ListVideo, LogOut, Menu, Moon, Palette, Radio, Send, Settings, Sun, Users, Code2, X } from 'lucide-react';
 import { ApiError, type Me, api, get } from './api';
 import { Badge, Button, Card, EmptyState, Field, Input, Skeleton, cx, errMsg } from './ui';
 import { Landing } from './pages/Landing';
@@ -58,7 +58,7 @@ function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         <Link to="/" className="mb-8 flex justify-center text-lg"><Logo /></Link>
         <Card>
           <h1 className="text-xl font-semibold">{mode === 'login' ? 'Inicia sesión' : 'Crea tu cuenta'}</h1>
-          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">{mode === 'login' ? 'Accede a tu panel de emisión.' : 'Prueba con límites reales, sin tarjeta.'}</p>
+          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">{mode === 'login' ? 'Accede a tu panel de emisión.' : 'Gratis, sin tarjeta y sin límite de horas.'}</p>
           <form onSubmit={submit} className="mt-6 space-y-4" noValidate={false}>
             {mode === 'register' && <>
               <Field label="Tu nombre">{(id) => <Input id={id} name="name" required maxLength={80} autoComplete="name" />}</Field>
@@ -90,7 +90,6 @@ const NAV: { to: string; label: string; icon: ReactNode; soon?: boolean }[] = [
   { to: '/app/designer', label: 'Diseñador', icon: <Palette className="size-4.5" />, soon: true },
   { to: '/app/analytics', label: 'Analíticas', icon: <BarChart3 className="size-4.5" />, soon: true },
   { to: '/app/team', label: 'Equipo', icon: <Users className="size-4.5" />, soon: true },
-  { to: '/app/billing', label: 'Facturación', icon: <CreditCard className="size-4.5" />, soon: true },
   { to: '/app/developer', label: 'API', icon: <Code2 className="size-4.5" />, soon: true },
   { to: '/app/settings', label: 'Ajustes', icon: <Settings className="size-4.5" />, soon: true },
 ];
@@ -177,7 +176,6 @@ export function App() {
         <Route path="designer" element={<ComingSoon title="Diseñador de escenas">Overlays, logos, rótulos y «ahora suena».</ComingSoon>} />
         <Route path="analytics" element={<ComingSoon title="Analíticas">Las métricas técnicas reales están en cada emisión. Las de audiencia requieren la integración oficial de cada plataforma.</ComingSoon>} />
         <Route path="team" element={<ComingSoon title="Equipo">Los roles (owner, admin, editor, operator, viewer) ya se aplican en la API; falta la gestión de invitaciones.</ComingSoon>} />
-        <Route path="billing" element={<ComingSoon title="Facturación">Suscripciones y facturas con Stripe.</ComingSoon>} />
         <Route path="developer" element={<ComingSoon title="API y webhooks">Tokens de API, webhooks firmados y documentación OpenAPI.</ComingSoon>} />
         <Route path="settings" element={<ComingSoon title="Ajustes">Perfil, idioma, seguridad y notificaciones.</ComingSoon>} />
       </Route>

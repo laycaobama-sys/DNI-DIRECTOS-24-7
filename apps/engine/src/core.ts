@@ -31,6 +31,10 @@ export const cfg = {
   /** Reinicio periódico del desfase de timestamps (el PTS de MPEG-TS desborda a las ~26,5 h). */
   tsResetSec: Number(env.TS_RESET_SEC ?? 12 * 3600),
   heartbeatMs: Number(env.HEARTBEAT_MS ?? 3000),
+  /** Solo desarrollo y pruebas: permite emitir a localhost y redes privadas. */
+  allowPrivateDestinations: env.ALLOW_PRIVATE_DESTINATIONS === 'true',
+  /** Puerto HTTP de salud (lo usa Cloudflare Containers). Sin definir, no se abre. */
+  port: env.PORT ? Number(env.PORT) : 0,
   version: '0.1.0',
 };
 

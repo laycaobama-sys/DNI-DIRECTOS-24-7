@@ -56,13 +56,22 @@ function ffmpegCount(): number {
     return Number(execFileSync('sh', ['-c', "pgrep -fc 'ffmpeg.*pipe:' || true"], { encoding: 'utf8' }).trim() || 0);
   } catch { return -1; }
 }
+/**
+ * Número estable de procesos FFmpeg. En el relevo entre dos vídeos el alimentador desaparece unos milisegundos,
+ * así que se toman varias muestras: nunca debe haber MÁS de los esperados y debe alcanzarse el número exacto.
+ */
+async function ffmpegSteady(expected: number): Promise<{ ok: boolean; seen: number[] }> {
+  const seen: number[] = [];
+  for (let i = 0; i < 8; i++) { seen.push(ffmpegCount()); await sleep(400); }
+  return { ok: seen.every((n) => n <= expected) && seen.includes(expected), seen };
+}
 const mediamtx = (name: string, port: number) => {
   const yml = path.join(dir, `${name}.yml`);
   writeFileSync(yml, `logLevel: info\nrtmp: yes\nrtmpAddress: :${port}\nrtsp: no\nhls: no\nwebrtc: no\nsrt: no\nmoq: no\napi: no\nmetrics: no\npprof: no\nplayback: no\npaths:\n  all_others:\n`);
   return startIn(dir, name, MEDIAMTX, [yml]); // cwd en .data/: MediaMTX genera ahí su certificado autofirmado
 };
 const engine = (n: number) => start(`engine-${n}`, process.execPath, ['--import', 'tsx', 'apps/engine/src/index.ts'], {
-  API_URL: API, ENGINE_TOKEN, NODE_ID: `e2e-node-${n}`, DATA_DIR: path.join(dir, `engine-${n}`), FFMPEG_PATH: FFMPEG, FFPROBE_PATH: FFPROBE, HEARTBEAT_MS: '2000',
+  API_URL: API, ENGINE_TOKEN, NODE_ID: `e2e-node-${n}`, DATA_DIR: path.join(dir, `engine-${n}`), FFMPEG_PATH: FFMPEG, FFPROBE_PATH: FFPROBE, HEARTBEAT_MS: '2000', ALLOW_PRIVATE_DESTINATIONS: 'true',
 });
 const wrangler = (...args: string[]) => [path.join(root, 'apps/api/node_modules/wrangler/bin/wrangler.js'), ...args];
 const d1 = (sql: string) => execFileSync(process.execPath, wrangler('d1', 'execute', 'DB', '--local', '--persist-to', path.join(dir, 'state'), '--command', sql), { cwd: path.join(root, 'apps/api'), stdio: 'pipe', env: { ...process.env, CI: '1' } });
@@ -142,6 +151,7 @@ async function main() {
   step('H1 · Registro de dos organizaciones');
   const regA = await A.ok('POST', '/v1/auth/register', { email: `a-${Date.now()}@example.test`, password: 'Clave-segura-123', name: 'Ana', organizationName: 'Org A' });
   await B.ok('POST', '/v1/auth/register', { email: `b-${Date.now()}@example.test`, password: 'Clave-segura-456', name: 'Blas', organizationName: 'Org B' });
+  d1(`UPDATE organizations SET plan = 'restricted' WHERE id = '${regA.organization.id}'`); // las cuotas se prueban con el plan acotado
   const unauth = await new Client('anon').req('GET', '/v1/streams');
   check('API privada exige sesión (401)', unauth.status === 401);
   const noToken = await new Client('anon').req('POST', '/internal/streams/claim', { nodeId: 'x', capacity: 1, running: 0 });
@@ -178,8 +188,8 @@ async function main() {
   const d2r = await A.ok('POST', '/v1/destinations', { name: 'Ingest B', url: `rtmp://127.0.0.1:${RTMP_B}/live`, streamKey: KEY_B, allowInsecure: true });
   check('La API nunca devuelve la clave de emisión', !JSON.stringify([d1r, d2r, await A.ok('GET', '/v1/destinations')]).includes('SECRETO'));
   const over = await A.req('POST', '/v1/streams', { name: 'x', playlistId: pl.id, destinationIds: [d1r.id, d2r.id] });
-  check('H5 · Plan de prueba: 2 destinos por stream rechazado (403)', over.status === 403, over.json?.error?.code);
-  d1(`UPDATE organizations SET plan = 'pro' WHERE id = '${regA.organization.id}'`);
+  check('H5 · Plan limitado: 2 destinos por stream rechazado (403)', over.status === 403, over.json?.error?.code);
+  d1(`UPDATE organizations SET plan = 'free' WHERE id = '${regA.organization.id}'`);
   const st = await A.ok('POST', '/v1/streams', { name: 'Canal e2e', playlistId: pl.id, mode: 'loop', profile: '720p30', destinationIds: [d1r.id, d2r.id] });
 
   step('H3/H4 · Inicio real desde la API y verificación de la señal con ffprobe');
@@ -240,17 +250,18 @@ async function main() {
   const sessions = (await A.ok('GET', `/v1/streams/${st.id}/sessions`)).items as any[];
   check('Evento de error «engine_lost» registrado', ev.some((e) => e.type === 'engine_lost' && e.level === 'error'));
   check('Otro nodo retoma con nuevo fencing token y reanuda posición', ev.some((e) => e.type === 'recovery_claimed') && sessions.length === sessBefore + 1 && sessions[0].nodeId === 'e2e-node-2' && sessions[1].endReason === 'engine_lost', ev.find((e) => e.type === 'engine_started' && e.message.includes('reanuda'))?.message);
-  check('Un único conjunto de procesos (1 feeder + 2 pushers)', ffmpegCount() === 3, `ffmpeg vivos: ${ffmpegCount()}`);
+  const steady = await ffmpegSteady(3);
+  check('Un único conjunto de procesos (1 feeder + 2 pushers), nunca duplicados', steady.ok, `muestras: ${steady.seen.join(',')}`);
   check('Señal restablecida en ambos ingests', probeRtmp(urlA).video?.codec_name === 'h264' && probeRtmp(urlB).video?.codec_name === 'h264');
   const stale = await fetch(`${API}/internal/streams/${st.id}/heartbeat`, { method: 'POST', headers: { authorization: `Bearer ${ENGINE_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ nodeId: 'e2e-node-1', sessionId: sessions[1].id, fencingToken: 1, status: 'live' }) });
   check('Heartbeat de un nodo desplazado → 409 (fencing)', stale.status === 409);
 
   step('H5 · Cuota de emisiones simultáneas');
-  d1(`UPDATE organizations SET plan = 'trial' WHERE id = '${regA.organization.id}'`);
+  d1(`UPDATE organizations SET plan = 'restricted' WHERE id = '${regA.organization.id}'`);
   const st2 = await A.ok('POST', '/v1/streams', { name: 'Segundo', playlistId: pl.id, destinationIds: [d1r.id] });
   const q = await A.req('POST', `/v1/streams/${st2.id}/start`);
   await sleep(4000);
-  check('Exceder la cuota → 409 con mensaje útil y sin procesos ocultos', q.status === 409 && q.json?.error?.code === 'quota_concurrent_streams' && ffmpegCount() === 3 && (await A.ok('GET', `/v1/streams/${st2.id}`)).status === 'ready', q.json?.error?.message);
+  check('Exceder la cuota → 409 con mensaje útil y sin procesos ocultos', q.status === 409 && q.json?.error?.code === 'quota_concurrent_streams' && (await ffmpegSteady(3)).ok && (await A.ok('GET', `/v1/streams/${st2.id}`)).status === 'ready', q.json?.error?.message);
 
   step('H1 · Aislamiento entre organizaciones (IDOR)');
   const idor = await Promise.all([

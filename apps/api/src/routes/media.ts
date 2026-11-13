@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { UPLOAD_PART_SIZE, uploadIntentSchema } from '@dni/shared';
 import { type AppEnv, type Env, HttpError, all, audit, first, newId, notFound, parseBody, run } from '../lib/core';
+import { wakeEngines } from '../engine-node';
 import { planOf, requireAuth } from './auth';
 
 const ALLOWED_EXT = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'mp3', 'wav', 'aac', 'm4a', 'png', 'jpg', 'jpeg', 'webp'];
@@ -100,6 +101,7 @@ media.post('/:id/complete', requireAuth('editor'), async (c) => {
     c.env.DB.prepare("UPDATE media_assets SET status = 'queued', upload_id = NULL, updated_at = ? WHERE id = ?").bind(Date.now(), m.id),
     c.env.DB.prepare('DELETE FROM media_upload_parts WHERE media_id = ?').bind(m.id),
   ]);
+  c.executionCtx.waitUntil(wakeEngines(c.env));
   await audit(c, 'media.uploaded', m.id, { size: m.size_bytes });
   return c.json(mediaDto({ ...m, status: 'queued' }));
 });

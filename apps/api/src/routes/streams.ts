@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
-import { type AssignedPlaylist, PLANS, type PlanId, type ProfileId, type StreamStatus, isActive, streamCreateSchema, streamUpdateSchema } from '@dni/shared';
+import { type AssignedPlaylist, type Plan, type ProfileId, type StreamStatus, isActive, streamCreateSchema, streamUpdateSchema } from '@dni/shared';
 import { type AppEnv, type Env, HttpError, addEvent, all, audit, first, newId, notFound, parseBody, run } from '../lib/core';
+import { wakeEngines } from '../engine-node';
 import { planOf, requireAuth } from './auth';
 import { type DestinationRow, destinationDto } from './destinations';
 
@@ -91,7 +92,7 @@ async function dto(env: Env, s: StreamRow) {
 }
 
 /** Inicio real: valida contenido, destinos y cuotas y deja el canal reclamable por un nodo de emisión. */
-export async function startStream(env: Env, s: StreamRow, plan: (typeof PLANS)[PlanId], actor: string) {
+export async function startStream(env: Env, s: StreamRow, plan: Plan, actor: string) {
   if (s.desired_state === 'running' && isActive(s.status)) return; // idempotente
   if (s.status === 'suspended') throw new HttpError(403, 'stream_suspended', 'El stream está suspendido por cuota. Revisa tu plan.');
   if (!plan.profiles.includes(s.profile)) throw new HttpError(403, 'plan_profile_not_allowed', `Tu plan no incluye la calidad ${s.profile}.`);
@@ -195,6 +196,7 @@ streams.post('/:id/start', requireAuth('operator'), async (c) => {
   const a = c.get('auth');
   const s = await getStream(c.env, a.orgId, c.req.param('id'));
   await startStream(c.env, s, planOf(c), a.email);
+  c.executionCtx.waitUntil(wakeEngines(c.env));
   await audit(c, 'stream.start', s.id);
   return c.json(await dto(c.env, await getStream(c.env, a.orgId, s.id)));
 });

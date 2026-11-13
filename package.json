@@ -19,7 +19,8 @@
     "test:e2e-stream": "tsx scripts/e2e-stream.ts",
     "tools:setup": "node scripts/setup-tools.mjs",
     "dev": "node scripts/dev.mjs",
-    "seed": "node scripts/seed-dev.mjs"
+    "seed": "node scripts/seed-dev.mjs",
+    "deploy:cloudflare": "node scripts/deploy.mjs"
   },
   "devDependencies": {
     "@dni/shared": "workspace:*",

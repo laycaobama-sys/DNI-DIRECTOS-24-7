@@ -11,10 +11,11 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { readdir, stat, rm, utimes } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { lookup } from 'node:dns/promises';
 import path from 'node:path';
 import {
   type AssignedPlaylist, type CursorState, type DestinationState, type Heartbeat, type HeartbeatResponse, type StreamAssignment, type StreamConfigRefresh,
-  advance, redactRtmp, resolve,
+  advance, isPrivateHost, redactRtmp, resolve,
 } from '@dni/shared';
 import { ApiError, api, cfg, download, lastLine, log, sleep } from './core';
 
@@ -60,6 +61,19 @@ async function evictCache() {
   }
 }
 
+/** Devuelve un motivo de bloqueo si el host del destino resuelve a una red privada (salvo en desarrollo). */
+async function privateTarget(url: string): Promise<string | null> {
+  if (cfg.allowPrivateDestinations) return null;
+  const host = /^rtmps?:\/\/(\[[^\]]+\]|[^/:]+)/i.exec(url)?.[1]?.replace(/^\[|\]$/g, '');
+  if (!host) return 'URL de destino no válida.';
+  try {
+    const addrs = await lookup(host, { all: true });
+    return addrs.some((a) => isPrivateHost(a.address)) ? 'El destino resuelve a una red privada: conexión bloqueada.' : null;
+  } catch {
+    return 'No se pudo resolver el servidor del destino (DNS).';
+  }
+}
+
 // ───────────────────────── Pusher: un proceso por destino ─────────────────────────
 class Pusher {
   state: DestinationState = 'idle';
@@ -74,6 +88,7 @@ class Pusher {
   private lastProgressAt = 0;
   private timer: NodeJS.Timeout | null = null;
   private closed = false;
+  private resolving = false;
 
   constructor(readonly id: string, private url: string, private emit: (e: Omit<Ev, 'at'>) => void) {}
 
@@ -81,10 +96,23 @@ class Pusher {
   sameUrl(url: string) { return this.url === url; }
 
   start() {
-    if (this.closed || this.proc) return;
+    if (this.closed || this.proc || this.resolving) return;
     this.state = 'connecting';
     this.lastProgressAt = Date.now();
     this.outTimeSec = null; this.bitrateKbps = null;
+    // Anti DNS-rebinding: la API valida el nombre, aquí se valida la IP a la que realmente se va a conectar.
+    this.resolving = true;
+    void privateTarget(this.url).then((blocked) => {
+      this.resolving = false;
+      if (this.closed) { this.state = 'idle'; return; }
+      if (blocked) this.retry(blocked);
+      else this.launch();
+    });
+  }
+
+  private launch() {
+    if (this.closed || this.proc) return;
+    this.lastProgressAt = Date.now();
     const p = spawn(cfg.ffmpeg, [
       '-hide_banner', '-loglevel', 'warning', '-progress', 'pipe:1', '-stats_period', '1',
       '-fflags', '+genpts', '-analyzeduration', '5000000', '-probesize', '5000000',
@@ -122,8 +150,14 @@ class Pusher {
       this.bytesBase += this.bytesRun; this.bytesRun = 0;
       this.bitrateKbps = null;
       if (this.closed) { this.state = 'idle'; return; }
+      this.retry(lastLine(stderr) || `FFmpeg terminó con código ${code}`);
+    });
+  }
+
+  private retry(error: string) {
+    {
       this.failures++; this.restarts++;
-      this.lastError = lastLine(stderr) || `FFmpeg terminó con código ${code}`;
+      this.lastError = error;
       const open = this.failures >= CIRCUIT_FAILURES;
       this.state = open ? 'failed' : 'retrying';
       // Backoff exponencial con jitter; circuito abierto tras fallos consecutivos.
@@ -131,7 +165,7 @@ class Pusher {
       if (open) this.failures = CIRCUIT_FAILURES - 2;
       this.emit({ type: open ? 'destination_failed' : 'destination_retrying', level: open ? 'error' : 'warn', message: `Destino ${this.id}: ${this.lastError}. Reintento en ${Math.round(delay / 1000)} s.`, data: { destinationId: this.id, failures: this.failures } });
       this.timer = setTimeout(() => { this.timer = null; this.start(); }, delay);
-    });
+    }
   }
 
   write(chunk: Buffer) {

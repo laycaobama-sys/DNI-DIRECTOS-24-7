@@ -56,7 +56,7 @@ export function Landing() {
               <Link to="/register"><Button variant="primary" className="h-12 px-6 text-base">Crear mi primera emisión</Button></Link>
               <a href="#como-funciona"><Button className="h-12 px-6 text-base">Ver cómo funciona</Button></a>
             </div>
-            <p className="mt-4 text-sm text-ink-500">Prueba con límites reales: {PLANS.trial.monthlyStreamHours} h de emisión y {fmtBytes(PLANS.trial.storageBytes)} de almacenamiento.</p>
+            <p className="mt-4 text-sm text-ink-500">Gratis, sin tarjeta y sin límite de horas.</p>
           </div>
           <Card className="relative overflow-hidden p-0" >
             <div className="flex items-center justify-between border-b border-ink-200 px-5 py-3 dark:border-ink-800">
@@ -111,23 +111,19 @@ export function Landing() {
 
         <section id="precios" className="border-y border-ink-200/70 bg-white py-16 dark:border-ink-800 dark:bg-ink-900">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Planes con límites claros</h2>
-            <p className="mt-2 max-w-2xl text-sm text-ink-600 dark:text-ink-300">Los límites de cada plan se aplican de verdad en la plataforma. Los precios se publicarán cuando estén validados con costes reales de infraestructura; hasta entonces solo está disponible la prueba.</p>
-            <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {Object.entries(PLANS).map(([id, p]) => (
-                <Card key={id} className="flex flex-col bg-ink-50 dark:bg-ink-950">
-                  <h3 className="font-semibold">{p.label}</h3>
-                  <p className="mt-1 text-sm text-ink-500">{id === 'trial' ? 'Disponible ahora' : 'Precio por anunciar'}</p>
-                  <ul className="mt-4 space-y-2 text-sm text-ink-700 dark:text-ink-300">
-                    <li>{p.maxConcurrentStreams} emisión(es) simultánea(s)</li>
-                    <li>{p.maxDestinationsPerStream} destino(s) por emisión</li>
-                    <li>{p.monthlyStreamHours.toLocaleString('es-ES')} h de emisión al mes</li>
-                    <li>{fmtBytes(p.storageBytes)} de almacenamiento</li>
-                    <li>Calidad: {p.profiles.map((x) => ENCODING_PROFILES[x].label).join(', ')}</li>
-                  </ul>
-                </Card>
-              ))}
-            </div>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Gratis y sin límites</h2>
+            <p className="mt-2 max-w-2xl text-sm text-ink-600 dark:text-ink-300">Ahora mismo todo el servicio es gratuito: sin planes, sin tarjeta y sin funciones bloqueadas.</p>
+            <Card className="mt-8 max-w-xl bg-ink-50 dark:bg-ink-950">
+              <h3 className="text-lg font-semibold">Todo incluido</h3>
+              <ul className="mt-4 space-y-2 text-sm text-ink-700 dark:text-ink-300">
+                <li>Emisión 24/7 sin límite de horas</li>
+                <li>Varias emisiones a la vez</li>
+                <li>Hasta {PLANS.free!.maxDestinationsPerStream} destinos por emisión</li>
+                <li>Calidad {Object.values(ENCODING_PROFILES).map((x) => x.label).join(' y ')}</li>
+                <li>Archivos de hasta {fmtBytes(PLANS.free!.maxUploadBytes)}</li>
+              </ul>
+              <Link to="/register" className="mt-6 inline-block"><Button variant="primary">Crear mi cuenta</Button></Link>
+            </Card>
           </div>
         </section>
 

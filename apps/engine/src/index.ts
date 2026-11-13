@@ -1,4 +1,5 @@
 /** Agente del nodo de emisión: reclama trabajos de medios y canales de la API y los ejecuta. */
+import { createServer } from 'node:http';
 import { hostname } from 'node:os';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -65,6 +66,12 @@ async function main() {
   if (!v || v.code !== 0) { log.error(`FFmpeg no disponible en «${cfg.ffmpeg}». Define FFMPEG_PATH.`); process.exit(1); }
   await mkdir(path.join(cfg.dataDir, 'cache'), { recursive: true });
   log.info({ api: cfg.apiUrl, capacity: cfg.capacity, role: cfg.role, ffmpeg: v.stdout.split('\n')[0] }, 'engine ready');
+  if (cfg.port) {
+    createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, node: cfg.nodeId, running: runners.size, capacity: cfg.capacity, uptimeSec: Math.round(process.uptime()) }));
+    }).listen(cfg.port, '0.0.0.0');
+  }
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   await Promise.all([cfg.role !== 'media' ? streamLoop() : null, cfg.role !== 'stream' ? mediaLoop() : null]);

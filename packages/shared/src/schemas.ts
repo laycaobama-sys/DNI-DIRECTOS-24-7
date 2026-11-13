@@ -7,14 +7,35 @@ export const ENCODING_PROFILES = {
 export type ProfileId = keyof typeof ENCODING_PROFILES;
 export const PROFILE_IDS = Object.keys(ENCODING_PROFILES) as [ProfileId, ...ProfileId[]];
 
-/** Límites por plan. Valores de ejemplo configurables: NO son promesas comerciales (MASTER_SPEC E6/J). */
-export const PLANS = {
-  trial: { label: 'Prueba', maxConcurrentStreams: 1, maxDestinationsPerStream: 1, storageBytes: 2 * 1024 ** 3, maxUploadBytes: 1024 ** 3, profiles: ['720p30'] as ProfileId[], monthlyStreamHours: 24 },
-  creator: { label: 'Creator', maxConcurrentStreams: 1, maxDestinationsPerStream: 2, storageBytes: 20 * 1024 ** 3, maxUploadBytes: 5 * 1024 ** 3, profiles: ['720p30', '1080p30'] as ProfileId[], monthlyStreamHours: 750 },
-  pro: { label: 'Pro', maxConcurrentStreams: 3, maxDestinationsPerStream: 3, storageBytes: 100 * 1024 ** 3, maxUploadBytes: 10 * 1024 ** 3, profiles: ['720p30', '1080p30'] as ProfileId[], monthlyStreamHours: 2250 },
-  business: { label: 'Business', maxConcurrentStreams: 10, maxDestinationsPerStream: 5, storageBytes: 500 * 1024 ** 3, maxUploadBytes: 20 * 1024 ** 3, profiles: ['720p30', '1080p30'] as ProfileId[], monthlyStreamHours: 7500 },
-} as const;
-export type PlanId = keyof typeof PLANS;
+export interface Plan {
+  label: string;
+  /** Sin límites comerciales: la interfaz no muestra topes. Solo quedan salvaguardas técnicas. */
+  unlimited: boolean;
+  maxConcurrentStreams: number;
+  maxDestinationsPerStream: number;
+  storageBytes: number;
+  maxUploadBytes: number;
+  profiles: ProfileId[];
+  monthlyStreamHours: number;
+}
+const ALL_PROFILES: ProfileId[] = ['720p30', '1080p30'];
+/**
+ * Plan por defecto: gratuito y sin límites comerciales. Las cifras son salvaguardas técnicas contra errores
+ * (un bucle que cree miles de emisiones), no restricciones de producto. El máximo por archivo lo impone el
+ * disco del nodo de emisión, que debe alojar a la vez el original y su conversión.
+ */
+const FREE: Plan = {
+  label: 'Gratuito', unlimited: true, maxConcurrentStreams: 100, maxDestinationsPerStream: 10,
+  storageBytes: 5 * 1024 ** 4, maxUploadBytes: 4 * 1024 ** 3, profiles: ALL_PROFILES, monthlyStreamHours: 1_000_000,
+};
+export const PLANS: Record<string, Plan> = {
+  trial: FREE,
+  free: FREE,
+  /** Plan acotado: lo usan las pruebas de cuotas y sirve de base si en el futuro se introducen planes de pago. */
+  restricted: { label: 'Limitado', unlimited: false, maxConcurrentStreams: 1, maxDestinationsPerStream: 1, storageBytes: 2 * 1024 ** 3, maxUploadBytes: 1024 ** 3, profiles: ['720p30'], monthlyStreamHours: 24 },
+};
+export type PlanId = string;
+export const planFor = (id: string | null | undefined): Plan => (id ? PLANS[id] : undefined) ?? FREE;
 
 export const UPLOAD_PART_SIZE = 8 * 1024 * 1024;
 

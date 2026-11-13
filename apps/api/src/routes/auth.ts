@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { PLANS, hasRole, loginSchema, registerSchema, type PlanId, type Role } from '@dni/shared';
+import { hasRole, loginSchema, planFor, registerSchema, type Role } from '@dni/shared';
 import { type AppEnv, type Ctx, HttpError, all, audit, clientIp, first, hashPassword, newId, parseBody, randomToken, rateLimit, run, sha256Hex, verifyPassword } from '../lib/core';
 
 const COOKIE = 'dni_session';
@@ -37,13 +37,25 @@ export const requireAuth = (minRole: Role = 'viewer'): MiddlewareHandler<AppEnv>
   await next();
 };
 
-export const planOf = (c: Ctx) => PLANS[(c.get('auth').plan as PlanId)] ?? PLANS.trial;
+export const planOf = (c: Ctx) => planFor(c.get('auth').plan);
 
 export const auth = new Hono<AppEnv>();
+
+/**
+ * El servicio es gratuito y sin límites, así que el registro abierto dejaría a cualquiera emitir a costa del
+ * propietario. Por defecto solo se admite la primera cuenta (el propietario); ALLOW_SIGNUPS=true lo abre.
+ */
+async function signupsOpen(env: AppEnv['Bindings']): Promise<boolean> {
+  if (env.ALLOW_SIGNUPS === 'true') return true;
+  return !(await first(env.DB, 'SELECT 1 FROM users LIMIT 1'));
+}
+
+auth.get('/config', async (c) => c.json({ signupsOpen: await signupsOpen(c.env) }));
 
 auth.post('/register', async (c) => {
   await rateLimit(c.env, `register:${clientIp(c)}`, 30, 3600);
   const b = await parseBody(c, registerSchema);
+  if (!(await signupsOpen(c.env))) throw new HttpError(403, 'signups_closed', 'El registro está cerrado. Pide acceso al administrador de la plataforma.');
   if (await first(c.env.DB, 'SELECT 1 FROM users WHERE email = ?', b.email)) {
     throw new HttpError(409, 'email_in_use', 'Ya existe una cuenta con ese email.');
   }

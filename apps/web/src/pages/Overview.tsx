@@ -5,7 +5,7 @@ import { fmtBytes, fmtTime, get } from '../api';
 import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Progress, Skeleton } from '../ui';
 
 interface OverviewData {
-  plan: { label: string };
+  plan: { label: string; unlimited: boolean };
   storage: { usedBytes: number; limitBytes: number; files: number };
   streams: { byStatus: Record<string, number>; running: number; limit: number };
   usage: { liveHoursThisMonth: number; limitHours: number; egressBytesThisMonth: number };
@@ -36,18 +36,19 @@ export function Overview() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <p className="text-sm text-ink-500">Emisiones en directo</p>
-          <p className="mt-2 text-3xl font-semibold">{live}<span className="text-base font-normal text-ink-400"> / {d.streams.limit}</span></p>
+          <p className="mt-2 text-3xl font-semibold">{live}{!d.plan.unlimited && <span className="text-base font-normal text-ink-400"> / {d.streams.limit}</span>}</p>
           <p className="mt-2 text-xs">{problems ? <Badge tone="warn">{problems} con incidencias</Badge> : <span className="text-ink-500">Sin incidencias activas</span>}</p>
         </Card>
         <Card>
           <p className="text-sm text-ink-500">Horas emitidas este mes</p>
-          <p className="mt-2 text-3xl font-semibold">{d.usage.liveHoursThisMonth.toFixed(1)}<span className="text-base font-normal text-ink-400"> / {d.usage.limitHours} h</span></p>
-          <div className="mt-3"><Progress value={(d.usage.liveHoursThisMonth / d.usage.limitHours) * 100} tone={d.usage.liveHoursThisMonth / d.usage.limitHours > 0.85 ? 'warn' : 'air'} /></div>
+          <p className="mt-2 text-3xl font-semibold">{d.usage.liveHoursThisMonth.toFixed(1)}<span className="text-base font-normal text-ink-400"> {d.plan.unlimited ? 'h' : `/ ${d.usage.limitHours} h`}</span></p>
+          {d.plan.unlimited ? <p className="mt-2 text-xs text-ink-500">Sin límite de horas</p>
+            : <div className="mt-3"><Progress value={(d.usage.liveHoursThisMonth / d.usage.limitHours) * 100} tone={d.usage.liveHoursThisMonth / d.usage.limitHours > 0.85 ? 'warn' : 'air'} /></div>}
         </Card>
         <Card>
           <p className="text-sm text-ink-500">Almacenamiento</p>
-          <p className="mt-2 text-3xl font-semibold">{fmtBytes(d.storage.usedBytes)}<span className="text-base font-normal text-ink-400"> / {fmtBytes(d.storage.limitBytes)}</span></p>
-          <div className="mt-3"><Progress value={(d.storage.usedBytes / d.storage.limitBytes) * 100} /></div>
+          <p className="mt-2 text-3xl font-semibold">{fmtBytes(d.storage.usedBytes)}{!d.plan.unlimited && <span className="text-base font-normal text-ink-400"> / {fmtBytes(d.storage.limitBytes)}</span>}</p>
+          {d.plan.unlimited ? <p className="mt-2 text-xs text-ink-500">{d.storage.files} archivo(s)</p> : <div className="mt-3"><Progress value={(d.storage.usedBytes / d.storage.limitBytes) * 100} /></div>}
         </Card>
         <Card>
           <p className="text-sm text-ink-500">Datos enviados este mes</p>

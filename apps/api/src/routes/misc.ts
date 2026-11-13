@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { PLANS, type PlanId, type ScheduleRule, isValidTimeZone, nextOccurrence, scheduleCreateSchema } from '@dni/shared';
+import { planFor, type ScheduleRule, isValidTimeZone, nextOccurrence, scheduleCreateSchema } from '@dni/shared';
 import { type AppEnv, type Env, HttpError, addEvent, all, first, newId, notFound, parseBody, run } from '../lib/core';
 import { planOf, requireAuth } from './auth';
 import { type StreamRow, getStream, startStream, stopStream } from './streams';
@@ -79,7 +79,7 @@ export async function runSchedules(env: Env, now = Date.now()) {
       const claimed = await run(env.DB, 'UPDATE schedules SET next_start_at = ?, next_stop_at = ? WHERE id = ? AND next_start_at = ?', next, stopAt, r.id, r.next_start_at);
       if (!claimed.meta.changes || !s) continue;
       try {
-        await startStream(env, s, PLANS[s.plan as PlanId] ?? PLANS.trial, 'programación');
+        await startStream(env, s, planFor(s.plan), 'programación');
       } catch (e) {
         await addEvent(env.DB, { streamId: s.id, orgId: s.organization_id, type: 'schedule_failed', level: 'error', message: `No se pudo iniciar la emisión programada: ${e instanceof Error ? e.message : 'error'}` });
       }

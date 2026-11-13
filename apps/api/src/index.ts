@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { type AppEnv, type Env, HttpError } from './lib/core';
+import { EngineNode, wakeEngines } from './engine-node';
 import { auth } from './routes/auth';
+
+export { EngineNode };
 import { destinations } from './routes/destinations';
 import { internal, reconcile } from './routes/internal';
 import { media } from './routes/media';
@@ -72,6 +75,7 @@ export default {
     ctx.waitUntil((async () => {
       await reconcile(env);
       await runSchedules(env);
+      await wakeEngines(env);
       await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(Date.now()).run();
       await env.DB.prepare('DELETE FROM stream_events WHERE created_at < ?').bind(Date.now() - 30 * 86_400_000).run();
       await env.DB.prepare('DELETE FROM rate_limits WHERE window_start < ?').bind(Date.now() - 86_400_000).run();

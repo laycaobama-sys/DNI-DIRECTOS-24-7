@@ -39,11 +39,10 @@ export function Library() {
   const visible = q.data?.items.filter((m) => m.status !== 'uploading') ?? [];
   return (
     <>
-      <PageHeader title="Biblioteca" description={q.data ? `${fmtBytes(q.data.storage.usedBytes)} de ${fmtBytes(q.data.storage.limitBytes)} usados` : 'Tus vídeos, audios e imágenes'}
+      <PageHeader title="Biblioteca" description={q.data ? `${fmtBytes(q.data.storage.usedBytes)} usados · hasta 4 GB por archivo` : 'Tus vídeos, audios e imágenes'}
         actions={<Button variant="primary" onClick={() => input.current?.click()}><CloudUpload className="size-4" />Subir archivos</Button>} />
       <input ref={input} type="file" multiple hidden accept=".mp4,.mov,.mkv,.webm,.m4v,.mp3,.wav,.aac,.m4a,.png,.jpg,.jpeg,.webp"
         onChange={(e) => { if (e.target.files?.length) void addFiles(e.target.files); e.target.value = ''; }} />
-      {q.data && <div className="mb-5"><Progress value={(q.data.storage.usedBytes / q.data.storage.limitBytes) * 100} /></div>}
 
       <div onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={onDrop}
         className={cx('mb-6 rounded-2xl border-2 border-dashed px-6 py-8 text-center text-sm transition-colors', over ? 'border-air-500 bg-air-500/5' : 'border-ink-300 dark:border-ink-700')}>

@@ -1,4 +1,4 @@
-import type { PLANS } from '@dni/shared';
+import type { Plan } from '@dni/shared';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public details?: unknown) { super(message); }
@@ -48,7 +48,7 @@ export async function uploadFile(file: File, onProgress: (pct: number) => void, 
   return intent.mediaId;
 }
 
-export type Plan = (typeof PLANS)[keyof typeof PLANS];
+export type { Plan };
 export interface Me {
   user: { id: string; email: string; name: string; emailVerified: boolean };
   organizations: { id: string; name: string; plan: string; role: string }[];

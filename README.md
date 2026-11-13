@@ -4,7 +4,7 @@ SaaS de emisión continua: sube vídeos, ordénalos en una playlist y emítelos 
 desde la nube. Especificación: [`docs/MASTER_SPEC.md`](docs/MASTER_SPEC.md).
 
 > **Estado: MVP probado en local.** El motor de emisión funciona de extremo a extremo contra servidores RTMP locales.
-> **No está desplegado en Cloudflare ni se ha emitido nunca a YouTube o Twitch.** Lista exacta de lo probado y lo
+> **Aún no está desplegado en Cloudflare** (la cuenta necesita R2 y Workers Paid; después basta `pnpm deploy:cloudflare`) **ni se ha emitido nunca a YouTube o Twitch.** Lista exacta de lo probado y lo
 > pendiente en [`docs/ACCEPTANCE_TESTS.md`](docs/ACCEPTANCE_TESTS.md).
 
 ## Arranque local (sin Docker)

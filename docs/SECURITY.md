@@ -25,8 +25,9 @@
 - **Sin verificación de email, recuperación de contraseña ni 2FA.** No apto para clientes reales todavía.
 - `ENGINE_TOKEN` es un secreto compartido por todos los nodos: quien lo obtenga accede a los medios y claves de todas
   las organizaciones. Mejora prevista: credenciales por nodo y de corta duración.
-- **DNS rebinding:** la validación de destinos es por nombre; un dominio público puede resolver a una IP privada.
-  El motor debe comprobar la IP resuelta antes de conectar (pendiente) y ejecutarse con salida de red restringida.
+- **Registro:** cerrado tras la primera cuenta salvo `ALLOW_SIGNUPS=true`; con el servicio gratuito y sin límites, abrirlo expone al propietario a costes de terceros.
+- **DNS rebinding:** el motor comprueba la IP resuelta antes de conectar, pero FFmpeg vuelve a resolver el nombre: queda una ventana pequeña. Falta restringir la salida de red del contenedor.
+- **TLS de RTMPS:** FFmpeg no verifica el certificado del destino por defecto.
 - El rate limiting en D1 no cubre el resto de endpoints. Falta WAF o Turnstile en el registro.
 - PBKDF2 a 100.000 iteraciones está por debajo de las recomendaciones actuales; migrar a un KDF con memoria cuando sea posible.
 - Sin antivirus sobre las subidas, sin límites cgroup verificados y sin análisis de dependencias en CI.

@@ -50,7 +50,7 @@ const node = process.execPath;
 run('rtmp', 35, mtx, [path.join(data, 'mediamtx.yml')], { cwd: data });
 run('api', 36, node, [path.join(root, 'apps/api/node_modules/wrangler/bin/wrangler.js'), 'dev', '--port', '8787', '--show-interactive-dev-session=false'], { cwd: path.join(root, 'apps/api'), env: { CI: '1' } });
 run('engine', 33, node, ['--import', 'tsx', 'apps/engine/src/index.ts'], {
-  env: { API_URL: 'http://127.0.0.1:8787', ENGINE_TOKEN: token, DATA_DIR: path.join(data, 'engine'), FFMPEG_PATH: process.env.FFMPEG_PATH ?? require('ffmpeg-static'), FFPROBE_PATH: process.env.FFPROBE_PATH ?? require('ffprobe-static').path },
+  env: { API_URL: 'http://127.0.0.1:8787', ENGINE_TOKEN: token, ALLOW_PRIVATE_DESTINATIONS: 'true', DATA_DIR: path.join(data, 'engine'), FFMPEG_PATH: process.env.FFMPEG_PATH ?? require('ffmpeg-static'), FFPROBE_PATH: process.env.FFPROBE_PATH ?? require('ffprobe-static').path },
 });
 if (!process.argv.includes('--no-web')) run('web', 32, node, [path.join(root, 'apps/web/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1'], { cwd: path.join(root, 'apps/web') });
 console.log('\n  Web:   http://localhost:5173\n  API:   http://127.0.0.1:8787\n  RTMP:  rtmp://127.0.0.1:1935/live/<clave>\n');

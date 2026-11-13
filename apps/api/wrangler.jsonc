@@ -1,11 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "dni-directos-api",
+  "name": "dni-directos-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  // Desarrollo local: D1 y R2 simulados por Miniflare (no requiere cuenta ni Docker).
+  // Desarrollo local: D1 y R2 simulados por Miniflare (no requiere cuenta ni Docker). El motor corre como proceso Node.
   "d1_databases": [
     { "binding": "DB", "database_name": "dni-directos", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
   ],
@@ -15,23 +15,35 @@
     "APP_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
     "COOKIE_SECURE": "false",
     "ALLOW_PRIVATE_DESTINATIONS": "true",
+    "ALLOW_SIGNUPS": "true",
     "LEASE_TTL_SEC": "20"
   },
   "env": {
-    // Producción: sustituir database_id tras `wrangler d1 create dni-directos` (ver docs/OPERATIONS.md).
-    // Secretos (wrangler secret put --env production): ENGINE_TOKEN, ENCRYPTION_KEY.
+    // Producción. `pnpm deploy:cloudflare` crea los recursos, rellena database_id y las variables dinámicas
+    // (PUBLIC_URL, APP_ORIGINS, ENGINE_ASSETS) y publica. Secretos: ENGINE_TOKEN y ENCRYPTION_KEY.
     "production": {
+      "name": "dni-directos",
+      "workers_dev": true,
       "d1_databases": [
-        { "binding": "DB", "database_name": "dni-directos", "database_id": "REEMPLAZAR_CON_ID_REAL", "migrations_dir": "migrations" }
+        { "binding": "DB", "database_name": "dni-directos", "database_id": "fd971803-98ef-4261-8ab8-6d043cd0e310", "migrations_dir": "migrations" }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "dni-directos-media" }],
       "triggers": { "crons": ["* * * * *"] },
       "assets": { "directory": "../web/dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/v1/*", "/internal/*", "/healthz"] },
+      // Motor de emisión: imagen oficial de Node; el motor y FFmpeg se cargan verificados desde R2 al arrancar.
+      "containers": [
+        { "class_name": "EngineNode", "image": "docker.io/library/node:22-bookworm", "instance_type": "standard-3", "max_instances": 3 }
+      ],
+      "durable_objects": { "bindings": [{ "name": "ENGINE", "class_name": "EngineNode" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EngineNode"] }],
       "vars": {
-        "APP_ORIGINS": "https://REEMPLAZAR_DOMINIO",
         "COOKIE_SECURE": "true",
         "ALLOW_PRIVATE_DESTINATIONS": "false",
-        "LEASE_TTL_SEC": "20"
+        // Gratuito y sin límites: solo se admite la primera cuenta (propietario). Cambiar a "true" abre el registro a cualquiera.
+        "ALLOW_SIGNUPS": "false",
+        "LEASE_TTL_SEC": "30",
+        "ENGINE_CAPACITY": "4",
+        "ENGINE_MAX_NODES": "3"
       }
     }
   }
