@@ -29,7 +29,7 @@ function wrangler(args, { input, allowFail = false } = {}) {
   } catch (e) {
     const out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
     if (allowFail) return `__FAILED__\n${out}`;
-    throw new Error(`wrangler ${args.slice(0, 3).join(' ')} falló:\n${out.split('\n').filter((l) => l.trim()).slice(0, 12).join('\n')}`);
+    throw new Error(`wrangler ${args.slice(0, 3).join(' ')} falló:\n${out.split('\n').filter((l) => l.trim()).slice(0, 12).join('\n')}`, { cause: e });
   }
 }
 const step = (t) => console.log(`\n▶ ${t}`);
@@ -113,12 +113,12 @@ function deploy(publicUrl) {
 step('Publicación del Worker');
 const prod = loadJson(path.join(state, 'deployment.json'), {});
 let url = process.env.PUBLIC_URL ?? prod.url;
-let out = deploy(url);
+const out = deploy(url);
 if (!url) {
   url = /https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev/.exec(out)?.[0];
   if (!url) fail(`No se pudo determinar la URL pública.\n${out}`);
   // Segunda publicación: el Worker necesita conocer su propia URL para dársela a los nodos de emisión.
-  out = deploy(url);
+  deploy(url);
 }
 writeFileSync(path.join(state, 'deployment.json'), JSON.stringify({ url, databaseId: db.uuid, deployedAt: new Date().toISOString() }, null, 2));
 console.log(`  ✓ ${url}`);
