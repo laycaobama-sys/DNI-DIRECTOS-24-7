@@ -23,13 +23,38 @@ Crea D1 y R2, aplica migraciones, compila web y motor, sube a R2 el motor y los 
 verificados por SHA-256, fijados en `infra/engine-binaries.json`), publica el Worker con sus assets y Containers,
 genera los secretos y comprueba `/healthz`.
 
-**Estado a 13-nov-2026:** D1 `dni-directos` creada. El despliegue se detiene en R2 porque **R2 no está activado en la
-cuenta**. Requisitos que solo el titular puede activar en el panel de Cloudflare:
+**Estado a 13-nov-2026:** web, API, D1 y R2 **desplegados y verificados** en
+`https://dni-directos.ibraguimova19.workers.dev` (`pnpm smoke:prod`: 20/20). **El motor no corre aún en Cloudflare:**
+la API de Containers responde `401 Unauthorized` al crear la aplicación, lo que indica que la cuenta no tiene acceso a
+Containers (requiere el plan **Workers Paid**). El script publica entonces todo lo demás y avisa.
 
-1. **R2** (pide método de pago; incluye 10 GB/mes gratis).
-2. **Workers Paid** (Cloudflare Containers lo exige).
+Mientras tanto el motor se ejecuta en un equipo propio contra producción:
 
-Tras activarlos, relanzar `pnpm deploy:cloudflare`.
+```bash
+pnpm engine:prod
+```
+
+Ese equipo debe seguir encendido para emitir. Cuando la cuenta tenga Workers Paid, relanzar `pnpm deploy:cloudflare`
+creará la aplicación de Containers y `pnpm engine:prod` dejará de ser necesario.
+
+### Acceso con Google
+Implementado (OAuth 2.0 + OpenID Connect con PKCE); se activa al definir dos secretos. Pasos del titular:
+
+1. Google Cloud Console → APIs y servicios → Pantalla de consentimiento OAuth (tipo Externo; ámbitos `openid`, `email`, `profile`) y publicarla.
+2. Credenciales → Crear ID de cliente de OAuth → Aplicación web. URI de redirección autorizado:
+   `https://dni-directos.ibraguimova19.workers.dev/v1/auth/google/callback`
+3. Guardar ID y secreto como secretos del Worker (no pegarlos en ningún chat ni en el repositorio):
+
+```bash
+pnpm --filter @dni/api exec wrangler secret put GOOGLE_CLIENT_ID --env production
+```
+
+```bash
+pnpm --filter @dni/api exec wrangler secret put GOOGLE_CLIENT_SECRET --env production
+```
+
+El botón «Continuar con Google» aparece solo cuando ambos existen. Una cuenta de Google cuyo correo ya esté
+registrado se vincula a la cuenta existente.
 
 ### Cómo corre el motor en Cloudflare
 - Clase `EngineNode` (`apps/api/src/engine-node.ts`): un Durable Object por nodo que controla un contenedor
@@ -46,8 +71,9 @@ Tras activarlos, relanzar `pnpm deploy:cloudflare`.
 (ignorado por git). **Guarda una copia**: sin `ENCRYPTION_KEY` las claves de emisión guardadas son irrecuperables.
 
 ### Registro
-El servicio es gratuito y sin límites, así que el registro abierto permitiría a cualquiera emitir a tu costa. Por
-defecto solo se admite **la primera cuenta** (la del propietario). `ALLOW_SIGNUPS=true` en `wrangler.jsonc` lo abre.
+Abierto en producción por decisión del propietario (`ALLOW_SIGNUPS=true`): cualquiera puede crear cuenta por correo
+o con Google. Como el servicio es gratuito y sin límites, cada cuenta puede emitir a costa de la cuenta de Cloudflare.
+`ALLOW_SIGNUPS=false` lo cierra tras la primera cuenta. No hay verificación de correo ni recuperación de contraseña.
 
 ### Mientras Cloudflare no esté activo
 El motor funciona en cualquier máquina con Node: `pnpm dev` levanta todo en local y permite emitir ya a YouTube o

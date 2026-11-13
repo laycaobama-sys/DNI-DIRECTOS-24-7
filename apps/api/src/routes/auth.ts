@@ -50,7 +50,78 @@ async function signupsOpen(env: AppEnv['Bindings']): Promise<boolean> {
   return !(await first(env.DB, 'SELECT 1 FROM users LIMIT 1'));
 }
 
-auth.get('/config', async (c) => c.json({ signupsOpen: await signupsOpen(c.env) }));
+const googleEnabled = (env: AppEnv['Bindings']) => !!env.GOOGLE_CLIENT_ID && !!env.GOOGLE_CLIENT_SECRET;
+
+auth.get('/config', async (c) => c.json({ signupsOpen: await signupsOpen(c.env), google: googleEnabled(c.env) }));
+
+// ───────────────────────── Acceso con Google (OAuth 2.0 + OpenID Connect, flujo de código con PKCE) ─────────────────────────
+const OAUTH_COOKIE = 'dni_oauth';
+const b64url = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const redirectUri = (c: Ctx) => `${c.env.PUBLIC_URL || new URL(c.req.url).origin}/v1/auth/google/callback`;
+const backToLogin = (c: Ctx, error: string) => {
+  deleteCookie(c, OAUTH_COOKIE, { path: '/v1/auth/google' });
+  return c.redirect(`/login?error=${encodeURIComponent(error)}`, 302);
+};
+
+auth.get('/google/start', async (c) => {
+  if (!googleEnabled(c.env)) throw new HttpError(404, 'google_not_configured', 'El acceso con Google no está configurado.');
+  await rateLimit(c.env, `google:${clientIp(c)}`, 30, 600);
+  const state = randomToken(24), verifier = randomToken(48);
+  // state y verificador viajan en una cookie httpOnly de un solo uso: protege contra CSRF de inicio de sesión.
+  setCookie(c, OAUTH_COOKIE, `${state}.${verifier}`, { httpOnly: true, sameSite: 'Lax', secure: c.env.COOKIE_SECURE === 'true', path: '/v1/auth/google', maxAge: 600 });
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  const q = new URLSearchParams({
+    client_id: c.env.GOOGLE_CLIENT_ID!, redirect_uri: redirectUri(c), response_type: 'code', scope: 'openid email profile',
+    state, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account',
+  });
+  return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${q}`, 302);
+});
+
+auth.get('/google/callback', async (c) => {
+  if (!googleEnabled(c.env)) return backToLogin(c, 'google_not_configured');
+  const [state, verifier] = (getCookie(c, OAUTH_COOKIE) ?? '').split('.');
+  const code = c.req.query('code');
+  if (c.req.query('error')) return backToLogin(c, 'google_cancelled');
+  if (!state || !verifier || !code || c.req.query('state') !== state) return backToLogin(c, 'google_state');
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code, client_id: c.env.GOOGLE_CLIENT_ID!, client_secret: c.env.GOOGLE_CLIENT_SECRET!, redirect_uri: redirectUri(c), grant_type: 'authorization_code', code_verifier: verifier }),
+  });
+  const tok = (await tokenRes.json().catch(() => null)) as { id_token?: string } | null;
+  if (!tokenRes.ok || !tok?.id_token) return backToLogin(c, 'google_exchange');
+  // El id_token llega directamente de Google por TLS en el canal de servidor, por lo que basta validar sus claims.
+  let claims: { iss?: string; aud?: string; exp?: number; sub?: string; email?: string; email_verified?: boolean; name?: string };
+  try {
+    const payload = tok.id_token.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/');
+    claims = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(payload), (ch) => ch.charCodeAt(0))));
+  } catch { return backToLogin(c, 'google_token'); }
+  const okIss = claims.iss === 'https://accounts.google.com' || claims.iss === 'accounts.google.com';
+  if (!okIss || claims.aud !== c.env.GOOGLE_CLIENT_ID || !claims.sub || !claims.email || (claims.exp ?? 0) * 1000 < Date.now()) return backToLogin(c, 'google_token');
+  if (claims.email_verified !== true) return backToLogin(c, 'google_email_unverified');
+  const email = claims.email.trim().toLowerCase();
+  const now = Date.now();
+  let user = await first<{ id: string }>(c.env.DB, 'SELECT id FROM users WHERE google_sub = ?', claims.sub);
+  if (!user) {
+    // Misma dirección ya registrada por correo: se vincula (Google garantiza que el email está verificado).
+    user = await first<{ id: string }>(c.env.DB, 'SELECT id FROM users WHERE email = ?', email);
+    if (user) await run(c.env.DB, 'UPDATE users SET google_sub = ?, email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?', claims.sub, now, user.id);
+  }
+  if (!user) {
+    if (!(await signupsOpen(c.env))) return backToLogin(c, 'signups_closed');
+    const userId = newId('usr'), orgId = newId('org');
+    const name = (claims.name ?? email.split('@')[0]!).slice(0, 80);
+    await c.env.DB.batch([
+      // '!' no es un hash válido: una cuenta creada con Google no puede entrar por contraseña hasta que defina una.
+      c.env.DB.prepare('INSERT INTO users (id, email, name, password_hash, email_verified_at, google_sub, created_at) VALUES (?,?,?,?,?,?,?)').bind(userId, email, name, '!', now, claims.sub, now),
+      c.env.DB.prepare('INSERT INTO organizations (id, name, plan, created_at) VALUES (?,?,?,?)').bind(orgId, `Canal de ${name}`.slice(0, 80), 'free', now),
+      c.env.DB.prepare('INSERT INTO organization_members (organization_id, user_id, role, created_at) VALUES (?,?,?,?)').bind(orgId, userId, 'owner', now),
+    ]);
+    user = { id: userId };
+  }
+  deleteCookie(c, OAUTH_COOKIE, { path: '/v1/auth/google' });
+  await createSession(c, user.id);
+  return c.redirect('/app/overview', 302);
+});
 
 auth.post('/register', async (c) => {
   await rateLimit(c.env, `register:${clientIp(c)}`, 30, 3600);

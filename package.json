@@ -20,7 +20,9 @@
     "tools:setup": "node scripts/setup-tools.mjs",
     "dev": "node scripts/dev.mjs",
     "seed": "node scripts/seed-dev.mjs",
-    "deploy:cloudflare": "node scripts/deploy.mjs"
+    "deploy:cloudflare": "node scripts/deploy.mjs",
+    "engine:prod": "node scripts/engine-prod.mjs",
+    "smoke:prod": "node scripts/smoke-prod.mjs"
   },
   "devDependencies": {
     "@dni/shared": "workspace:*",

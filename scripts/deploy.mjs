@@ -97,10 +97,16 @@ for (const [name, file] of [['index.mjs', path.join(root, 'apps/engine/dist/inde
 }
 writeFileSync(path.join(root, 'infra', 'engine-binaries.json'), `${JSON.stringify({ release: FFMPEG_RELEASE, 'ffmpeg.gz': pinned['ffmpeg.gz'], 'ffprobe.gz': pinned['ffprobe.gz'] }, null, 2)}\n`);
 
+let containersOk = true;
 function deploy(publicUrl) {
   const vars = ['--var', `ENGINE_ASSETS:${JSON.stringify(assets)}`];
   if (publicUrl) vars.push('--var', `PUBLIC_URL:${publicUrl}`, '--var', `APP_ORIGINS:${publicUrl}`);
-  const out = wrangler(['deploy', '--env', 'production', ...vars], { allowFail: true });
+  let out = containersOk ? wrangler(['deploy', '--env', 'production', ...vars], { allowFail: true }) : '__FAILED__ Unauthorized container';
+  if (out.startsWith('__FAILED__') && /Unauthorized/.test(out) && /container/i.test(out)) {
+    // La cuenta no puede crear aplicaciones de Containers: se publica todo lo demás y el motor queda pendiente.
+    containersOk = false;
+    out = wrangler(['deploy', '--env', 'production', '--containers-rollout', 'none', ...vars], { allowFail: true });
+  }
   if (out.startsWith('__FAILED__')) {
     if (/containers?/i.test(out) && /(paid|plan|subscription|upgrade)/i.test(out)) {
       fail('Cloudflare Containers requiere el plan Workers Paid. Actívalo en https://dash.cloudflare.com/?to=/:account/workers/plans y vuelve a ejecutar pnpm deploy:cloudflare.');
@@ -140,4 +146,11 @@ for (let i = 0; i < 10 && !ok; i++) {
   if (!ok) await new Promise((r) => setTimeout(r, 3000));
 }
 if (!ok) fail(`${url}/healthz no responde todavía. Revisa: pnpm --filter @dni/api exec wrangler tail --env production`);
-console.log(`  ✓ ${url}/healthz responde\n\n═══ Desplegado: ${url} ═══\nCrea tu cuenta en ${url}/register (la primera cuenta es la del propietario; después el registro queda cerrado).\n`);
+console.log(`  ✓ ${url}/healthz responde\n\n═══ Desplegado: ${url} ═══\n`);
+if (!containersOk) {
+  console.log([
+    '', '⚠ Cloudflare rechazó la aplicación de Containers (401 Unauthorized): la cuenta no tiene acceso a Containers',
+    '  (requiere el plan Workers Paid). La web y la API están publicadas, pero el motor NO corre en Cloudflare.',
+    '  Mientras tanto: pnpm engine:prod  (ejecuta el motor en este equipo contra producción).', '',
+  ].join('\n'));
+}

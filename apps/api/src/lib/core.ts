@@ -13,6 +13,9 @@ export interface Env {
   ALLOW_PRIVATE_DESTINATIONS: string;
   LEASE_TTL_SEC: string;
   ALLOW_SIGNUPS?: string;
+  /** Acceso con Google (opcional). Sin estos secretos el botón no se muestra. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   /** Solo en producción (Cloudflare Containers). */
   ENGINE?: DurableObjectNamespace;
   PUBLIC_URL?: string;

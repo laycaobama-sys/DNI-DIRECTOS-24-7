@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 — 2026-11-13
+- Desplegado en Cloudflare: Worker + assets, D1 y R2. Prueba de humo en producción (`pnpm smoke:prod`, 20 comprobaciones).
+- Acceso con Google (OAuth 2.0 + OIDC con PKCE), pendiente de credenciales; registro por correo abierto.
+- `pnpm engine:prod`: motor en un equipo propio contra producción mientras la cuenta no tenga Containers.
+- El despliegue publica la plataforma aunque Cloudflare rechace la aplicación de Containers y lo avisa.
+
 ## 0.2.0 — 2026-11-13
 - Servicio gratuito y sin límites comerciales; registro cerrado tras la primera cuenta.
 - Nodo de emisión para Cloudflare Containers (`EngineNode`) sin necesidad de Docker y despliegue con `pnpm deploy:cloudflare`.

@@ -28,7 +28,9 @@ Reproducir: `pnpm install && pnpm tools:setup && pnpm test && pnpm test:e2e-stre
 
 ## No probado o pendiente (resumen honesto)
 
-- Despliegue en Cloudflare: D1 creada; **el resto bloqueado** porque la cuenta no tiene R2 ni Workers Paid activados. El nodo de emisión para Containers (`EngineNode`) está escrito y tipado, pero **nunca se ha ejecutado en Cloudflare**.
+- **Producción (13-nov-2026):** `pnpm smoke:prod` → 20/20 contra `dni-directos.ibraguimova19.workers.dev` con el motor en un equipo local: registro, subida multipart a R2, conversión, miniatura privada, playlist, destino cifrado, emisión creada, bloqueo de destinos privados, CSRF y cabeceras. **No se inició ninguna emisión en producción.**
+- El nodo de emisión para Containers (`EngineNode`) **nunca se ha ejecutado**: Cloudflare devuelve 401 al crear la aplicación (cuenta sin acceso a Containers).
+- Acceso con Google: código desplegado, **sin probar de extremo a extremo** (faltan credenciales). Solo se verificó que sin ellas responde 404 y no muestra el botón.
 - Imagen Docker y `docker-compose.yml`: escritos, **nunca construidos** (no había Docker).
 - Emisión de larga duración: la prueba más larga duró ~2 minutos. No hay ensayo de 24 h ni del reinicio de base de tiempos a las 12 h.
 - Emisión por RTMPS con TLS real y a plataformas reales.

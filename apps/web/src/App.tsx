@@ -35,13 +35,24 @@ export function ThemeToggle() {
   );
 }
 
+const OAUTH_ERRORS: Record<string, string> = {
+  google_cancelled: 'Has cancelado el acceso con Google.',
+  google_state: 'La sesión de acceso con Google caducó. Inténtalo de nuevo.',
+  google_email_unverified: 'Tu cuenta de Google no tiene el correo verificado.',
+  signups_closed: 'El registro está cerrado: no existe una cuenta con ese correo.',
+  google_not_configured: 'El acceso con Google no está configurado todavía.',
+};
+
 function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const nav = useNavigate();
   const qc = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
+  const loc = useLocation();
+  const oauthError = new URLSearchParams(loc.search).get('error');
+  const [error, setError] = useState<string | null>(oauthError ? (OAUTH_ERRORS[oauthError] ?? 'No se pudo iniciar sesión con Google. Inténtalo de nuevo.') : null);
   const [busy, setBusy] = useState(false);
   const me = useMe();
-  if (me.data) return <Navigate to="/app/overview" replace />;
+  const cfg = useQuery<{ signupsOpen: boolean; google: boolean }>({ queryKey: ['auth-config'], queryFn: () => get('/v1/auth/config'), staleTime: 60_000 });
+  if (me.data) return <Navigate to="/app/overview" replace />
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
@@ -59,7 +70,20 @@ function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         <Card>
           <h1 className="text-xl font-semibold">{mode === 'login' ? 'Inicia sesión' : 'Crea tu cuenta'}</h1>
           <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">{mode === 'login' ? 'Accede a tu panel de emisión.' : 'Gratis, sin tarjeta y sin límite de horas.'}</p>
-          <form onSubmit={submit} className="mt-6 space-y-4" noValidate={false}>
+          {mode === 'register' && cfg.data && !cfg.data.signupsOpen && (
+            <p role="status" className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">El registro está cerrado en este momento.</p>
+          )}
+          {cfg.data?.google && (
+            <>
+              {/* Navegación completa (no fetch): el flujo OAuth redirige a Google y vuelve con la sesión creada. */}
+              <a href="/v1/auth/google/start" className="mt-6 flex h-10 w-full items-center justify-center gap-3 rounded-lg bg-white text-sm font-medium text-ink-800 ring-1 ring-ink-200 hover:bg-ink-50 dark:bg-ink-800 dark:text-ink-100 dark:ring-ink-700 dark:hover:bg-ink-700">
+                <svg viewBox="0 0 24 24" className="size-4.5" aria-hidden><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.5 5.5 0 0 1-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.7z" /><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.1 0-5.8-2.1-6.7-5H1.3v3.1A12 12 0 0 0 12 24z" /><path fill="#FBBC05" d="M5.3 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.3a12 12 0 0 0 0 10.8l4-3.1z" /><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.3 6.6l4 3.1c.9-2.9 3.6-4.9 6.7-4.9z" /></svg>
+                {mode === 'login' ? 'Continuar con Google' : 'Registrarse con Google'}
+              </a>
+              <div className="mt-5 flex items-center gap-3 text-xs text-ink-400"><span className="h-px flex-1 bg-ink-200 dark:bg-ink-800" />o con tu correo<span className="h-px flex-1 bg-ink-200 dark:bg-ink-800" /></div>
+            </>
+          )}
+          <form onSubmit={submit} className={cfg.data?.google ? 'mt-5 space-y-4' : 'mt-6 space-y-4'} noValidate={false}>
             {mode === 'register' && <>
               <Field label="Tu nombre">{(id) => <Input id={id} name="name" required maxLength={80} autoComplete="name" />}</Field>
               <Field label="Nombre de la organización" hint="Tu canal, marca o empresa.">{(id) => <Input id={id} name="organizationName" required maxLength={80} autoComplete="organization" />}</Field>

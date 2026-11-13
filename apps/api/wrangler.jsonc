@@ -24,6 +24,7 @@
     "production": {
       "name": "dni-directos",
       "workers_dev": true,
+      "preview_urls": false,
       "d1_databases": [
         { "binding": "DB", "database_name": "dni-directos", "database_id": "fd971803-98ef-4261-8ab8-6d043cd0e310", "migrations_dir": "migrations" }
       ],
@@ -39,8 +40,9 @@
       "vars": {
         "COOKIE_SECURE": "true",
         "ALLOW_PRIVATE_DESTINATIONS": "false",
-        // Gratuito y sin límites: solo se admite la primera cuenta (propietario). Cambiar a "true" abre el registro a cualquiera.
-        "ALLOW_SIGNUPS": "false",
+        // Registro abierto por decisión del propietario (correo y Google). OJO: el servicio es gratuito y sin límites,
+        // así que cada cuenta nueva puede emitir a costa de la cuenta de Cloudflare. "false" lo cierra tras la primera cuenta.
+        "ALLOW_SIGNUPS": "true",
         "LEASE_TTL_SEC": "30",
         "ENGINE_CAPACITY": "4",
         "ENGINE_MAX_NODES": "3"
