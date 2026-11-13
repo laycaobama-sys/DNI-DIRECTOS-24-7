@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { FolderOpen, Plus, Radio } from 'lucide-react';
+import { Check, Plus, Radio } from 'lucide-react';
 import { fmtBytes, fmtTime, get } from '../api';
-import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Progress, Skeleton } from '../ui';
+import { Badge, Button, Card, ErrorState, PageHeader, Progress, Skeleton, cx } from '../ui';
+import { useTitle } from '../hooks';
 
 interface OverviewData {
   plan: { label: string; unlimited: boolean };
@@ -15,23 +16,47 @@ interface OverviewData {
 }
 
 export function Overview() {
+  useTitle('Resumen');
   const q = useQuery<OverviewData>({ queryKey: ['overview'], queryFn: () => get('/v1/overview'), refetchInterval: 5000 });
   if (q.isLoading) return <div className="space-y-4"><Skeleton className="h-9 w-48" /><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28" />)}</div><Skeleton className="h-64" /></div>;
   if (q.error || !q.data) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const d = q.data;
   const live = (d.streams.byStatus.live ?? 0) + (d.streams.byStatus.degraded ?? 0);
   const problems = (d.streams.byStatus.degraded ?? 0) + (d.streams.byStatus.recovering ?? 0) + (d.streams.byStatus.failed ?? 0);
-  const firstRun = d.storage.files === 0;
+  const totalStreams = Object.values(d.streams.byStatus).reduce((a, b) => a + b, 0);
+  const steps = [
+    { done: d.storage.files > 0, title: 'Sube tus vídeos', text: 'Varios a la vez; se preparan solos.', to: '/app/library', cta: 'Subir' },
+    { done: d.counts.playlists > 0, title: 'Crea y publica una playlist', text: 'Ordénalos y pulsa «Publicar».', to: '/app/playlists', cta: 'Crear' },
+    { done: d.counts.destinations > 0, title: 'Conecta YouTube u otro destino', text: 'Con Google en un clic o con RTMP.', to: '/app/destinations', cta: 'Conectar' },
+    { done: totalStreams > 0, title: 'Crea tu emisión', text: 'Elige playlist, calidad y destinos.', to: '/app/streams/new', cta: 'Crear' },
+    { done: d.streams.running > 0 || d.usage.liveHoursThisMonth > 0, title: 'Inicia el directo', text: 'Y apaga el ordenador si quieres.', to: '/app/streams', cta: 'Ir' },
+  ];
+  const doneCount = steps.filter((s) => s.done).length;
   return (
     <>
-      <PageHeader title="Resumen" description={`Plan ${d.plan.label} · datos medidos por el motor de emisión`}
+      <PageHeader title="Resumen" description="Datos medidos en tiempo real por el motor de emisión"
         actions={<Link to="/app/streams/new"><Button variant="primary"><Plus className="size-4" />Nueva emisión</Button></Link>} />
-      {firstRun && (
-        <div className="mb-6">
-          <EmptyState icon={<FolderOpen />} title="Empieza subiendo tus vídeos" action={<Link to="/app/library"><Button variant="primary">Ir a la biblioteca</Button></Link>}>
-            Para emitir necesitas tres cosas: vídeos procesados, una playlist publicada y al menos un destino. Te llevará pocos minutos.
-          </EmptyState>
-        </div>
+      {doneCount < steps.length && (
+        <Card className="relative mb-6 overflow-hidden">
+          <div className="pointer-events-none absolute -right-20 -top-20 size-56 rounded-full bg-air-500/15 blur-3xl" aria-hidden />
+          <div className="relative flex flex-wrap items-end justify-between gap-3">
+            <div><h2 className="text-lg font-semibold">Tu canal 24/7 en {steps.length} pasos</h2><p className="text-sm text-ink-500">{doneCount} de {steps.length} completados</p></div>
+            <div className="w-full max-w-xs"><Progress value={(doneCount / steps.length) * 100} /></div>
+          </div>
+          <ol className="relative mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {steps.map((s, i) => {
+              const current = !s.done && steps.slice(0, i).every((x) => x.done);
+              return (
+                <li key={s.title} className={cx('flex-col rounded-2xl p-4 ring-1 transition', s.done ? 'hidden bg-emerald-500/[0.06] ring-emerald-500/20 sm:flex' : 'flex', s.done ? '' : current ? 'bg-air-500/[0.06] ring-air-500/40' : 'ring-ink-200 dark:ring-white/[0.07]')}>
+                  <span className={cx('flex size-7 items-center justify-center rounded-full text-xs font-bold', s.done ? 'bg-emerald-500 text-white' : current ? 'bg-signal text-white' : 'bg-ink-100 text-ink-500 dark:bg-white/[0.06]')}>{s.done ? <Check className="size-4" /> : i + 1}</span>
+                  <p className="mt-3 text-sm font-semibold">{s.title}</p>
+                  <p className="mt-0.5 flex-1 text-xs text-ink-500">{s.text}</p>
+                  {!s.done && <Link to={s.to} className={cx('mt-3 text-sm font-semibold', current ? 'text-air-500' : 'text-ink-500')}>{s.cta} →</Link>}
+                </li>
+              );
+            })}
+          </ol>
+        </Card>
       )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>

@@ -17,7 +17,7 @@ import {
   type AssignedPlaylist, type CursorState, type DestinationState, type Heartbeat, type HeartbeatResponse, type StreamAssignment, type StreamConfigRefresh,
   advance, isPrivateHost, redactRtmp, resolve,
 } from '@dni/shared';
-import { ApiError, api, cfg, download, lastLine, log, sleep } from './core';
+import { ApiError, api, cfg, download, errorLine, lastLine, log, sleep } from './core';
 
 const MAX_PUSHER_BUFFER = 24 * 1024 * 1024;
 const STALL_MS = 20_000;
@@ -150,7 +150,7 @@ class Pusher {
       this.bytesBase += this.bytesRun; this.bytesRun = 0;
       this.bitrateKbps = null;
       if (this.closed) { this.state = 'idle'; return; }
-      this.retry(lastLine(stderr) || `FFmpeg terminó con código ${code}`);
+      this.retry(errorLine(stderr) || (code === null ? 'El destino no respondió a tiempo (conexión cortada por el vigilante).' : `FFmpeg terminó con código ${code}`));
     });
   }
 

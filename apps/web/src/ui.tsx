@@ -6,15 +6,17 @@ export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Bool
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 const variants: Record<Variant, string> = {
-  primary: 'bg-air-500 text-white hover:bg-air-600 shadow-sm',
-  secondary: 'bg-white text-ink-800 ring-1 ring-ink-200 hover:bg-ink-50 dark:bg-ink-800 dark:text-ink-100 dark:ring-ink-700 dark:hover:bg-ink-700',
+  primary: 'bg-signal text-white shadow-[0_8px_24px_-10px_rgba(255,79,46,0.75)] hover:brightness-110 hover:shadow-[0_10px_30px_-10px_rgba(255,79,46,0.9)]',
+  secondary: 'bg-white text-ink-800 ring-1 ring-ink-200 hover:bg-ink-50 dark:bg-white/[0.04] dark:text-ink-100 dark:ring-white/10 dark:hover:bg-white/[0.08]',
   danger: 'bg-red-600 text-white hover:bg-red-700',
-  ghost: 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800',
+  ghost: 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-white/[0.06]',
 };
+export const buttonCls = (variant: Variant = 'secondary', className?: string) =>
+  cx('inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-all duration-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50', variants[variant], className);
 export function Button({ variant = 'secondary', loading, className, children, disabled, ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; loading?: boolean }) {
   return (
     <button {...p} disabled={disabled || loading} aria-busy={loading || undefined}
-      className={cx('inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50', variants[variant], className)}>
+      className={buttonCls(variant, className)}>
       {loading && <Loader2 className="size-4 animate-spin" aria-hidden />}
       {children}
     </button>
@@ -32,12 +34,25 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
     </div>
   );
 }
-export const inputCls = 'block h-10 w-full rounded-lg border-0 bg-white px-3 text-sm text-ink-900 ring-1 ring-ink-200 placeholder:text-ink-400 focus:ring-2 focus:ring-air-500 dark:bg-ink-900 dark:text-ink-100 dark:ring-ink-700';
+export const inputCls = 'block h-11 w-full rounded-xl border-0 bg-white px-3.5 text-[15px] text-ink-900 ring-1 ring-ink-200 transition-shadow placeholder:text-ink-400 focus:ring-2 focus:ring-air-500 sm:h-10 sm:text-sm dark:bg-white/[0.04] dark:text-ink-100 dark:ring-white/10 dark:placeholder:text-ink-500';
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={cx(inputCls, p.className)} />;
 
 export const Card = ({ className, children }: { className?: string; children: ReactNode }) => (
-  <div className={cx('rounded-2xl bg-white p-5 ring-1 ring-ink-200/70 dark:bg-ink-900 dark:ring-ink-800', className)}>{children}</div>
+  <div className={cx('rounded-2xl bg-white p-5 ring-1 ring-ink-200/70 shadow-[0_1px_2px_rgba(16,24,40,0.04)] dark:bg-ink-900/70 dark:ring-white/[0.07] dark:shadow-none', className)}>{children}</div>
 );
+
+/** Activa la animación de entrada de los elementos `.reveal` cuando aparecen en pantalla. */
+export function useReveal(deps: unknown[] = []) {
+  useEffect(() => {
+    const els = document.querySelectorAll<HTMLElement>('.reveal:not(.is-in)');
+    if (!('IntersectionObserver' in window)) { els.forEach((e) => e.classList.add('is-in')); return; }
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+    els.forEach((e) => io.observe(e));
+    return () => io.disconnect();
+  }, deps);
+}
 
 const tones = {
   live: 'bg-red-50 text-red-700 ring-red-200 dark:bg-red-950/50 dark:text-red-300 dark:ring-red-900',
@@ -73,7 +88,7 @@ export const Skeleton = ({ className }: { className?: string }) => <div classNam
 
 export function EmptyState({ icon, title, children, action }: { icon: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center rounded-2xl border border-dashed border-ink-300 px-6 py-14 text-center dark:border-ink-700">
+    <div className="flex flex-col items-center rounded-2xl border border-dashed border-ink-300 bg-white/40 px-6 py-14 text-center dark:border-white/10 dark:bg-white/[0.02]">
       <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-300">{icon}</div>
       <h3 className="text-base font-semibold">{title}</h3>
       {children && <p className="mt-1 max-w-md text-sm text-ink-500 dark:text-ink-400">{children}</p>}
@@ -97,7 +112,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">{title}</h1>
         {description && <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -124,7 +139,7 @@ export function Modal({ open, title, onClose, children, footer }: { open: boolea
   }, [open]);
   return (
     <dialog ref={ref} onClose={onClose} onClick={(e) => { if (e.target === ref.current) onClose(); }}
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-2xl bg-white p-0 text-ink-900 shadow-2xl backdrop:bg-ink-950/60 dark:bg-ink-900 dark:text-ink-100">
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl bg-white p-0 text-ink-900 shadow-2xl ring-1 ring-black/5 backdrop:bg-ink-950/70 backdrop:backdrop-blur-sm dark:bg-ink-900 dark:text-ink-100 dark:ring-white/10">
       {open && (
         <div className="p-6">
           <div className="mb-4 flex items-start justify-between gap-4">

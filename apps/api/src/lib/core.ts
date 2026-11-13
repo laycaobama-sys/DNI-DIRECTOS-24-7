@@ -25,7 +25,7 @@ export interface Env {
   ENGINE_ASSETS?: string;
 }
 
-export interface AuthCtx { userId: string; orgId: string; role: Role; plan: string; email: string }
+export interface AuthCtx { userId: string; orgId: string; role: Role; plan: string; email: string; superadmin: boolean }
 export type AppEnv = { Bindings: Env; Variables: { auth: AuthCtx } };
 export type Ctx = Context<AppEnv>;
 
@@ -133,7 +133,7 @@ export const clientIp = (c: Ctx) => c.req.header('cf-connecting-ip') ?? 'local';
 export async function audit(c: Ctx, action: string, target?: string, data?: unknown) {
   const a = c.get('auth') as AuthCtx | undefined;
   await run(c.env.DB, 'INSERT INTO audit_logs (organization_id, user_id, action, target, ip, data, created_at) VALUES (?,?,?,?,?,?,?)',
-    a?.orgId ?? null, a?.userId ?? null, action, target ?? null, clientIp(c), data ? JSON.stringify(data) : null, Date.now());
+    a?.orgId || null, a?.userId ?? null, action, target ?? null, clientIp(c), data ? JSON.stringify(data) : null, Date.now());
 }
 
 export async function addEvent(db: D1Database, e: { streamId: string; orgId: string; sessionId?: string | null; type: string; level?: 'info' | 'warn' | 'error'; message: string; data?: unknown; at?: number }) {

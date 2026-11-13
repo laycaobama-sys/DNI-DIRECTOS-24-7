@@ -6,12 +6,14 @@ import { requireAuth } from './auth';
 export interface DestinationRow {
   id: string; organization_id: string; name: string; platform: string; url: string; secure: number;
   stream_key_enc: string; stream_key_last4: string; key_rotated_at: number; created_at: number; updated_at: number;
+  youtube_account_id?: string | null; youtube_broadcast_id?: string | null;
 }
 
 /** La clave nunca sale de la API: solo se muestran los últimos 4 caracteres. */
 export const destinationDto = (d: DestinationRow) => ({
   id: d.id, name: d.name, platform: d.platform, url: d.url, secure: !!d.secure,
   streamKeyMasked: maskSecret(`xxxx${d.stream_key_last4}`), keyRotatedAt: d.key_rotated_at, createdAt: d.created_at,
+  youtube: d.youtube_broadcast_id ? { connected: !!d.youtube_account_id, watchUrl: `https://www.youtube.com/watch?v=${d.youtube_broadcast_id}`, studioUrl: `https://studio.youtube.com/video/${d.youtube_broadcast_id}/livestreaming` } : null,
 });
 
 const getOwned = async (env: Env, orgId: string, id: string) => {

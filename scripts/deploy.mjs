@@ -147,6 +147,15 @@ for (let i = 0; i < 10 && !ok; i++) {
 }
 if (!ok) fail(`${url}/healthz no responde todavía. Revisa: pnpm --filter @dni/api exec wrangler tail --env production`);
 console.log(`  ✓ ${url}/healthz responde\n\n═══ Desplegado: ${url} ═══\n`);
+if (containersOk) {
+  // Renueva los nodos encendidos con la versión nueva del motor (apagado ordenado: las emisiones se reanudan solas).
+  const { ENGINE_TOKEN } = loadJson(secretsFile, {});
+  if (ENGINE_TOKEN) {
+    const r = await fetch(`${url}/internal/engine/nodes?action=rollout`, { headers: { authorization: `Bearer ${ENGINE_TOKEN}` } }).then((x) => x.json()).catch(() => null);
+    const n = r?.nodes?.filter((x) => x.restarted).length ?? 0;
+    console.log(`  ✓ motor en Cloudflare Containers${n ? ` (${n} nodo(s) renovados con la versión nueva)` : ''}`);
+  }
+}
 if (!containersOk) {
   console.log([
     '', '⚠ Cloudflare rechazó la aplicación de Containers (401 Unauthorized): la cuenta no tiene acceso a Containers',

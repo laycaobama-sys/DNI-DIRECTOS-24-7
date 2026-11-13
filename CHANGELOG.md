@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 — 2026-11-14
+- Motor de emisión en **Cloudflare Containers** verificado: salida a YouTube por RTMPS 443 y RTMP 1935, conversión de vídeos en ~8 s sin ningún PC encendido. Escala por emisiones y por cola de vídeos; renovación automática tras cada despliegue.
+- Subida de varios archivos **a la vez** (6 conexiones compartidas, progreso por byte y velocidad); 2 conversiones simultáneas por servidor.
+- **Panel del propietario** (/admin): métricas y gráficas, usuarios (desactivar, propietario, cerrar sesiones, borrar), todas las emisiones (detener/reiniciar), cola de vídeos, servidores, eventos, auditoría y ajustes (registro, aviso global, capacidad, credenciales de Google cifradas).
+- **YouTube con un clic**: conexión del canal con Google (OAuth, API oficial) que crea el directo y el destino sin copiar claves.
+- Ajustes de cuenta (perfil, contraseña, cerrar sesiones), programación con interfaz, páginas legales.
+- Rediseño completo: identidad visual, portada con animaciones, panel con navegación inferior en móvil, carga diferida por páginas.
+- SEO/AEO/GEO: portada prerenderizada, datos estructurados (SoftwareApplication, FAQPage, HowTo), sitemap, robots abierto a buscadores de IA, llms.txt, Open Graph.
+- Pack de marca en docs/brand.
+
 ## 0.3.0 — 2026-11-13
 - Desplegado en Cloudflare: Worker + assets, D1 y R2. Prueba de humo en producción (`pnpm smoke:prod`, 20 comprobaciones).
 - Acceso con Google (OAuth 2.0 + OIDC con PKCE), pendiente de credenciales; registro por correo abierto.

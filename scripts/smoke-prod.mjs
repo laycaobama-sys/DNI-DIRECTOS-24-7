@@ -88,6 +88,29 @@ try {
   check('Emisión creada y lista para iniciar', st.status === 201 && st.json?.status === 'ready');
   const ov = await call('GET', '/v1/overview');
   check('Resumen: datos reales y audiencia «no disponible»', ov.status === 200 && ov.json?.audience?.available === false && ov.json?.storage?.files === 1);
+  if (process.argv.includes('--egress')) {
+    // Comprobación de salida RTMPS desde el motor: se emite unos segundos a YouTube con una clave INVENTADA.
+    // YouTube no la asocia a ningún canal; solo interesa saber si la conexión TLS/RTMP llega a establecerse.
+    console.log('\n▶ Salida RTMPS desde el motor (clave inventada)');
+    const started = await call('POST', `/v1/streams/${st.json.id}/start`);
+    const seen = new Set();
+    let last = null, node = null;
+    for (let i = 0; i < 30; i++) {
+      await sleep(2000);
+      last = (await call('GET', `/v1/streams/${st.json.id}`)).json;
+      const d = last?.destinations?.[0];
+      if (d) seen.add(`${last.status}/${d.state}${d.lastError ? ` [${d.lastError}]` : ''}`);
+      if (d?.state === 'live' && i > 8) break;
+    }
+    const ev = (await call('GET', `/v1/streams/${st.json.id}/events?limit=50`)).json?.items ?? [];
+    node = ev.find((e) => e.type === 'claimed')?.message;
+    console.log(`  estados observados: ${[...seen].join(' → ')}`);
+    check('El motor reclama la emisión', started.status === 200 && !!node, node ?? 'ningún nodo la reclamó');
+    check('Conexión RTMPS establecida con YouTube desde el motor', [...seen].some((s) => s.includes('/live')), `bitrate ${last?.destinations?.[0]?.bitrateKbps ?? '—'} kb/s`);
+    await call('POST', `/v1/streams/${st.json.id}/stop`);
+    for (let i = 0; i < 20; i++) { await sleep(1500); if ((await call('GET', `/v1/streams/${st.json.id}`)).json?.status === 'stopped') break; }
+    check('Detención confirmada', (await call('GET', `/v1/streams/${st.json.id}`)).json?.status === 'stopped');
+  }
   const csrf = await fetch(`${API}/v1/streams/${st.json.id}/start`, { method: 'POST', headers: { cookie } });
   check('Mutación sin cabecera anti-CSRF rechazada', csrf.status === 403);
 } catch (e) {

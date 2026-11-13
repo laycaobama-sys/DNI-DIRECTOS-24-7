@@ -15,3 +15,4 @@ auto.key
 *.pem
 *.key
 *.crt
+dist-ssr/

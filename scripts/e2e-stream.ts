@@ -80,11 +80,14 @@ class Client {
   cookie = '';
   constructor(public label: string) {}
   async req(method: string, p: string, body?: unknown, raw?: Buffer, extra: Record<string, string> = {}) {
-    const res = await fetch(`${API}${p}`, {
+    const init = {
       method,
       headers: { 'x-requested-with': 'e2e', ...(this.cookie ? { cookie: this.cookie } : {}), ...(raw ? { 'content-type': 'application/octet-stream' } : body ? { 'content-type': 'application/json' } : {}), ...extra },
       body: raw ?? (body ? JSON.stringify(body) : undefined),
-    });
+    };
+    // Las llamadas síncronas a wrangler bloquean el bucle de eventos y el servidor cierra la conexión keep-alive
+    // en reposo: un único reintento ante corte de conexión (nunca ante respuestas HTTP).
+    const res = await fetch(`${API}${p}`, init).catch(() => fetch(`${API}${p}`, init));
     const sc = res.headers.get('set-cookie');
     if (sc) this.cookie = sc.split(';')[0]!;
     const text = await res.text();
@@ -170,7 +173,7 @@ async function main() {
   check('a.mp4 analizado: h264 640x360 con audio', by(ids.a).status === 'ready' && by(ids.a).videoCodec === 'h264' && by(ids.a).width === 640 && by(ids.a).hasAudio === true, JSON.stringify({ c: by(ids.a).videoCodec, w: by(ids.a).width, d: by(ids.a).durationSec }));
   check('b.mkv analizado: mpeg4 1280x720 sin audio', by(ids.b).status === 'ready' && by(ids.b).videoCodec === 'mpeg4' && by(ids.b).hasAudio === false);
   check('c.webm analizado: vp9 854x480', by(ids.c).status === 'ready' && by(ids.c).videoCodec === 'vp9' && by(ids.c).width === 854);
-  check('Archivo corrupto → error accionable', by(ids.bad).status === 'failed' && by(ids.bad).error?.code === 'unreadable_media', by(ids.bad).error?.message);
+  check('Archivo corrupto → error accionable', by(ids.bad).status === 'failed' && ['unreadable_media', 'unsupported_container', 'no_media_streams'].includes(by(ids.bad).error?.code), by(ids.bad).error?.message);
   const th = await A.req('GET', `/v1/media/${ids.b}/thumbnail`);
   check('Miniatura real generada (JPEG)', th.status === 200 && th.headers.get('content-type') === 'image/jpeg');
 

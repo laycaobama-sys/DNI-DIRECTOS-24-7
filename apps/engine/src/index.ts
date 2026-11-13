@@ -1,5 +1,6 @@
 /** Agente del nodo de emisión: reclama trabajos de medios y canales de la API y los ejecuta. */
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import { hostname } from 'node:os';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -10,12 +11,22 @@ import { StreamRunner } from './playout';
 
 const runners = new Map<string, StreamRunner>();
 let shuttingDown = false;
+let egress = '';
+
+/** Autodiagnóstico de salida de red hacia los ingests habituales (RTMPS 443 y RTMP 1935). Se informa a la API. */
+function probe(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const s = connect({ host, port, timeout: 6000 });
+    const done = (ok: boolean) => { s.destroy(); resolve(ok); };
+    s.once('connect', () => done(true)).once('timeout', () => done(false)).once('error', () => done(false));
+  });
+}
 
 async function streamLoop() {
   while (!shuttingDown) {
     try {
       const { assignment } = await api<{ assignment: StreamAssignment | null }>('POST', '/internal/streams/claim',
-        { nodeId: cfg.nodeId, hostname: hostname(), version: cfg.version, capacity: cfg.capacity, running: runners.size });
+        { nodeId: cfg.nodeId, hostname: hostname(), version: `${cfg.version}${egress}`.slice(0, 40), capacity: cfg.capacity, running: runners.size });
       if (assignment && !shuttingDown) {
         // Nunca dos runners del mismo canal en un nodo: el anterior se detiene antes de arrancar el nuevo.
         const prev = runners.get(assignment.streamId);
@@ -45,7 +56,7 @@ async function mediaLoop() {
     } catch (e) {
       log.warn(`media loop: ${e instanceof Error ? e.message : e}`);
     }
-    if (!job) await sleep(2000);
+    if (!job) await sleep(1000);
   }
 }
 
@@ -74,7 +85,13 @@ async function main() {
   }
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  await Promise.all([cfg.role !== 'media' ? streamLoop() : null, cfg.role !== 'stream' ? mediaLoop() : null]);
+  void Promise.all([probe('a.rtmps.youtube.com', 443), probe('a.rtmp.youtube.com', 1935)]).then(([tls, plain]) => {
+    egress = ` 443:${tls ? 'ok' : 'NO'} 1935:${plain ? 'ok' : 'NO'}`;
+    log.info({ rtmps443: tls, rtmp1935: plain }, 'egress self-test');
+  });
+  // Varios vídeos se convierten a la vez: una subida múltiple no espera en fila de uno en uno.
+  const mediaWorkers = cfg.role !== 'stream' ? Array.from({ length: cfg.mediaConcurrency }, () => mediaLoop()) : [];
+  await Promise.all([cfg.role !== 'media' ? streamLoop() : null, ...mediaWorkers]);
 }
 
 void main();

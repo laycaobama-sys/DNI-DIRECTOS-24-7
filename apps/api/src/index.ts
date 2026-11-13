@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { type AppEnv, type Env, HttpError } from './lib/core';
 import { EngineNode, wakeEngines } from './engine-node';
+import { admin } from './routes/admin';
 import { auth } from './routes/auth';
+import { youtube } from './routes/youtube';
 
 export { EngineNode };
 import { destinations } from './routes/destinations';
@@ -55,6 +57,8 @@ app.route('/v1/destinations', destinations);
 app.route('/v1/streams', streams);
 app.route('/v1/schedules', schedules);
 app.route('/v1/overview', overview);
+app.route('/v1/admin', admin);
+app.route('/v1/integrations/youtube', youtube);
 app.route('/internal', internal);
 
 app.notFound((c) => {

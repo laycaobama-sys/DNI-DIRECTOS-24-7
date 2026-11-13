@@ -1,30 +1,119 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ───────────── Sistema visual DNI Directos ─────────────
+   Estética «estudio de emisión»: negros profundos, señal en directo (coral → ámbar) y acento violeta.
+   Todo color pasa por estos tokens; el modo oscuro es el por defecto del panel. */
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --color-ink-50: #f6f7f9;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --color-ink-50: #f5f6f8;
   --color-ink-100: #eceef2;
-  --color-ink-200: #d9dde5;
-  --color-ink-300: #b6bdca;
-  --color-ink-400: #8a93a6;
-  --color-ink-500: #667085;
-  --color-ink-600: #4a5265;
-  --color-ink-700: #333a4a;
-  --color-ink-800: #1d222e;
-  --color-ink-900: #12151d;
-  --color-ink-950: #0b0d12;
+  --color-ink-200: #dadde5;
+  --color-ink-300: #b5bbc8;
+  --color-ink-400: #868ea0;
+  --color-ink-500: #636b7e;
+  --color-ink-600: #474e60;
+  --color-ink-700: #2e3443;
+  --color-ink-800: #1a1e29;
+  --color-ink-850: #13161f;
+  --color-ink-900: #0e1017;
+  --color-ink-950: #07080c;
+
+  --color-air-300: #ffa58f;
   --color-air-400: #ff7a5c;
-  --color-air-500: #ff5a36;
-  --color-air-600: #e8421f;
-  --color-ok-500: #17a673;
-  --color-warn-500: #d98a0b;
+  --color-air-500: #ff4f2e;
+  --color-air-600: #e83a19;
+  --color-amber-glow: #ffb020;
+  --color-violet-400: #a48bff;
+  --color-violet-500: #7c5cff;
+  --color-ok-500: #19b47a;
+  --color-warn-500: #e09b14;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-marquee: marquee 38s linear infinite;
 }
 
-html { color-scheme: light; }
+html { color-scheme: light; -webkit-tap-highlight-color: transparent; text-rendering: optimizeLegibility; }
 html.dark { color-scheme: dark; }
-body { @apply bg-ink-50 text-ink-900 antialiased dark:bg-ink-950 dark:text-ink-100; font-family: var(--font-sans); }
-:focus-visible { outline: 2px solid var(--color-air-500); outline-offset: 2px; border-radius: 6px; }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
-@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+body {
+  @apply bg-ink-50 text-ink-900 antialiased dark:bg-ink-950 dark:text-ink-100;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
+:focus-visible { outline: 2px solid var(--color-air-500); outline-offset: 2px; border-radius: 8px; }
+::selection { background: color-mix(in srgb, var(--color-air-500) 35%, transparent); }
+
+/* Texto con degradado de marca */
+.text-signal {
+  background: linear-gradient(100deg, #ff4f2e 0%, #ff8a3d 40%, #ffb020 60%, #a48bff 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.bg-signal { background-image: linear-gradient(110deg, #ff4f2e, #ff7a3d 45%, #ff9f1c); }
+.ring-signal { box-shadow: 0 0 0 1px color-mix(in srgb, #ff4f2e 45%, transparent), 0 12px 40px -12px color-mix(in srgb, #ff4f2e 55%, transparent); }
+
+/* Superficie de cristal (cabeceras, tarjetas sobre fondos animados) */
+.glass {
+  background: color-mix(in srgb, var(--color-ink-950) 62%, transparent);
+  backdrop-filter: saturate(160%) blur(16px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+}
+.glass-light { background: color-mix(in srgb, white 72%, transparent); backdrop-filter: saturate(160%) blur(16px); -webkit-backdrop-filter: saturate(160%) blur(16px); }
+
+/* Rejilla tenue de fondo */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, white 5%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, white 5%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 100%);
+}
+
+/* Aurora: manchas de luz que derivan lentamente (solo transform/opacity → GPU, sin repintados) */
+.aurora { position: absolute; inset: -20% -10% auto; height: 120%; pointer-events: none; overflow: hidden; }
+.aurora span { position: absolute; border-radius: 9999px; filter: blur(80px); opacity: 0.55; will-change: transform; }
+.aurora span:nth-child(1) { width: 46vw; height: 46vw; left: -6vw; top: -10vw; background: #ff4f2e; animation: drift-a 18s var(--ease-out-expo) infinite alternate; }
+.aurora span:nth-child(2) { width: 38vw; height: 38vw; right: -8vw; top: -4vw; background: #7c5cff; opacity: 0.45; animation: drift-b 22s ease-in-out infinite alternate; }
+.aurora span:nth-child(3) { width: 30vw; height: 30vw; left: 34vw; top: 10vw; background: #ffb020; opacity: 0.28; animation: drift-c 26s ease-in-out infinite alternate; }
+@keyframes drift-a { to { transform: translate3d(12vw, 8vw, 0) scale(1.15); } }
+@keyframes drift-b { to { transform: translate3d(-10vw, 10vw, 0) scale(0.9); } }
+@keyframes drift-c { to { transform: translate3d(-8vw, -6vw, 0) scale(1.2); } }
+
+@keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.85); } }
 .live-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+@keyframes ring-out { 0% { transform: scale(0.6); opacity: 0.7; } 100% { transform: scale(2.4); opacity: 0; } }
+.on-air-ring { animation: ring-out 2.2s var(--ease-out-expo) infinite; }
+@keyframes marquee { to { transform: translateX(-50%); } }
+@keyframes eq { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1); } }
+.eq-bar { transform-origin: bottom; animation: eq 1.1s ease-in-out infinite; }
+@keyframes dash { to { stroke-dashoffset: -40; } }
+.flow-line { stroke-dasharray: 6 8; animation: dash 1.2s linear infinite; }
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.shimmer { position: relative; overflow: hidden; }
+.shimmer::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, white 14%, transparent), transparent); animation: shimmer 1.6s infinite; }
+@keyframes float-y { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+.float-y { animation: float-y 6s ease-in-out infinite; }
+
+/* Aparición al hacer scroll (la activa useReveal con IntersectionObserver) */
+.reveal { opacity: 0; transform: translate3d(0, 24px, 0); transition: opacity 0.9s var(--ease-out-expo), transform 0.9s var(--ease-out-expo); transition-delay: var(--d, 0ms); }
+.reveal.is-in { opacity: 1; transform: none; }
+
+/* Entrada del primer pantallazo: solo CSS, se reproduce en cuanto se pinta el HTML prerenderizado (no espera a JS). */
+@keyframes hero-in { from { opacity: 0; transform: translate3d(0, 18px, 0); } to { opacity: 1; transform: none; } }
+.hero-in { animation: hero-in 0.9s var(--ease-out-expo) both; animation-delay: var(--d, 0ms); }
+
+/* Página entrante en el panel */
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.page-in { animation: page-in 0.45s var(--ease-out-expo) both; }
+
+/* Barras de desplazamiento discretas */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--color-ink-500) 45%, transparent) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .reveal { opacity: 1; transform: none; }
+}
+
+/* Contenido prerenderizado para buscadores e IA: se oculta en rutas que no son la portada */
+html.spa #ssr { display: none; }

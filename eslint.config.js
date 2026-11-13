@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/.wrangler/**', '.data/**', '.tools/**'] },
+  { ignores: ['**/dist/**', '**/dist-ssr/**', '**/node_modules/**', '**/.wrangler/**', '.data/**', '.tools/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -12,5 +12,5 @@ export default tseslint.config(
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
-  { files: ['scripts/**', '*.config.*'], languageOptions: { globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', Buffer: 'readonly', setTimeout: 'readonly' } } },
+  { files: ['scripts/**', 'apps/*/scripts/**', '*.config.*'], languageOptions: { globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', Buffer: 'readonly', setTimeout: 'readonly' } } },
 );

@@ -6,6 +6,7 @@
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { z } from 'zod';
+import { engineNodes } from '../engine-node';
 import { type HeartbeatResponse, type MediaJob, type StreamAssignment, type StreamConfigRefresh, UPLOAD_PART_SIZE, heartbeatSchema, joinRtmp, mediaResultSchema, redactRtmp } from '@dni/shared';
 import { type AppEnv, type Env, HttpError, addEvent, all, decryptSecret, first, newId, notFound, parseBody, run, timingSafeEqual } from '../lib/core';
 import { type StreamRow, configRevision, resolvePlaylist, streamDestinations } from './streams';
@@ -56,6 +57,12 @@ async function failStream(env: Env, s: StreamRow, reason: string) {
 
 export const internal = new Hono<AppEnv>();
 internal.use('*', engineAuth);
+
+/** Diagnóstico de los nodos de Cloudflare Containers (operación). `?action=restart` reinicia con apagado ordenado. */
+internal.get('/engine/nodes', async (c) => {
+  const action = c.req.query('action');
+  return c.json({ nodes: await engineNodes(c.env, action === 'restart' || action === 'ensure' || action === 'rollout' ? action : 'status') });
+});
 
 /** Artefactos del motor (bundle y binarios de FFmpeg) para el cargador del contenedor. Direccionados por SHA-256. */
 internal.get('/engine/assets/:name', async (c) => {

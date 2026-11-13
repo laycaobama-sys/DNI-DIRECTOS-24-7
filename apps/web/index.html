@@ -1,20 +1,58 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Emite tus vídeos 24/7 a YouTube, Twitch o cualquier destino RTMP desde la nube. Sube, ordena, programa y transmite sin depender de tu ordenador." />
-    <meta property="og:title" content="DNI Directos 24/7 — Tu canal siempre en directo" />
-    <meta property="og:description" content="Streaming continuo desde la nube: playlists, multidestino y recuperación automática." />
-    <meta name="theme-color" content="#0b0d12" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Directos 24/7 en YouTube gratis, en bucle y sin PC · DNI Directos 24/7</title>
+    <meta name="description" content="Emite vídeos pregrabados en directo 24/7 a YouTube, Twitch, Kick y cualquier RTMP desde la nube. Playlist en bucle, multidestino y recuperación automática. Gratis y sin límite de horas." />
+    <meta name="keywords" content="directo 24/7, streaming 24/7, emitir en directo 24 horas, live 24/7 YouTube, directo en bucle, transmisión en vivo pregrabada, emitir vídeos pregrabados en directo, multistream, restream, radio 24/7 YouTube, lofi 24/7, streaming en la nube, emitir sin OBS, RTMP" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <link rel="canonical" href="%SITE_URL%/" />
+    <link rel="alternate" hreflang="es" href="%SITE_URL%/" />
+    <link rel="alternate" hreflang="x-default" href="%SITE_URL%/" />
+    <meta name="theme-color" content="#07080c" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="application-name" content="DNI Directos 24/7" />
+    <meta name="apple-mobile-web-app-title" content="DNI Directos" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>DNI Directos 24/7 — Tu canal siempre en directo</title>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:site_name" content="DNI Directos 24/7" />
+    <meta property="og:url" content="%SITE_URL%/" />
+    <meta property="og:title" content="Directos 24/7 en YouTube sin encender el ordenador" />
+    <meta property="og:description" content="Sube tus vídeos, crea una playlist en bucle y emite en continuo a YouTube, Twitch, Kick y cualquier RTMP desde la nube. Gratis y sin límite de horas." />
+    <meta property="og:image" content="%SITE_URL%/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="DNI Directos 24/7: directos 24/7 en YouTube sin encender el ordenador" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Directos 24/7 en YouTube sin encender el ordenador" />
+    <meta name="twitter:description" content="Playlist en bucle, multidestino y recuperación automática desde la nube. Gratis." />
+    <meta name="twitter:image" content="%SITE_URL%/og-image.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap" />
+
     <script>
-      try { const t = localStorage.getItem('theme'); if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark'); } catch {}
+      // Tema antes del primer pintado (sin parpadeo). El oscuro es el predeterminado.
+      try { if (localStorage.getItem('theme') === 'light') document.documentElement.classList.remove('dark'); } catch (e) {}
+      // El contenido prerenderizado de la portada solo se muestra en «/».
+      if (location.pathname !== '/') document.documentElement.classList.add('spa');
+    </script>
+    <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
+
+    <script type="application/ld+json">
+      %JSON_LD%
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><!--SSR--></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

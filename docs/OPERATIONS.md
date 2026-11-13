@@ -23,10 +23,11 @@ Crea D1 y R2, aplica migraciones, compila web y motor, sube a R2 el motor y los 
 verificados por SHA-256, fijados en `infra/engine-binaries.json`), publica el Worker con sus assets y Containers,
 genera los secretos y comprueba `/healthz`.
 
-**Estado a 13-nov-2026:** web, API, D1 y R2 **desplegados y verificados** en
+**Estado a 14-nov-2026:** web, API, D1, R2 **y motor en Cloudflare Containers** desplegados y verificados en
 `https://dni-directos.ibraguimova19.workers.dev` (`pnpm smoke:prod`: 20/20). **El motor no corre aún en Cloudflare:**
 la API de Containers responde `401 Unauthorized` al crear la aplicación, lo que indica que la cuenta no tiene acceso a
-Containers (requiere el plan **Workers Paid**). El script publica entonces todo lo demás y avisa.
+Containers. Con Workers Paid activo (14-nov-2026) el motor corre en Containers; si algún día Cloudflare rechaza la
+aplicación, el script publica todo lo demás y avisa.
 
 Mientras tanto el motor se ejecuta en un equipo propio contra producción:
 
@@ -110,3 +111,23 @@ son límites de ejemplo, no precios.
 - **Retención:** eventos 30 días, sesiones caducadas y contadores de rate limit se purgan por cron.
 - **Copias:** exportación de D1 (`wrangler d1 export`) y versionado de R2. Restauración **no ensayada**.
 - **Alertas (email/webhook):** no implementadas.
+
+## Panel del propietario
+`/admin` (solo cuentas con `is_superadmin`; la primera cuenta creada lo es). Desde ahí se gestiona sin terminal:
+usuarios, emisiones de todos, cola de vídeos, servidores de Containers, eventos, auditoría, registro abierto/cerrado,
+aviso global, número máximo de servidores y las **credenciales de Google** (se guardan cifradas en D1).
+
+## Credenciales de Google (acceso y YouTube)
+1. Google Cloud Console → Credenciales → ID de cliente OAuth (Aplicación web):
+   - Origen autorizado: `https://dni-directos.ibraguimova19.workers.dev`
+   - URI de redirección: `https://dni-directos.ibraguimova19.workers.dev/v1/auth/google/callback`
+2. Para «YouTube con un clic»: habilitar **YouTube Data API v3** y añadir el ámbito `https://www.googleapis.com/auth/youtube`
+   en la pantalla de consentimiento. Mientras la app no esté verificada por Google, solo los usuarios de prueba
+   añadidos en la consola pueden conectar YouTube (límite de 100) y verán un aviso de «app no verificada».
+3. `/admin/settings` → pegar ID y secreto → Guardar.
+
+## Comprobaciones rápidas
+- `pnpm smoke:prod`: 20 comprobaciones contra producción con cuenta temporal que se borra al terminar.
+- `pnpm smoke:prod -- --egress`: además arranca una emisión hacia YouTube con clave inventada (YouTube la rechaza;
+  sirve para ver errores, no prueba la salida).
+- Diagnóstico de nodos: `GET /internal/engine/nodes` (Bearer ENGINE_TOKEN) o la pestaña «Servidores» del panel.

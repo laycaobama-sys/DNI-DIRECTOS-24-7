@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowLeft, Play, Plus, Radio, RotateCw, Square, Trash2 }
 import { ENCODING_PROFILES, type ProfileId, isActive, type StreamStatus } from '@dni/shared';
 import { type Stream, type StreamEvent, api, fmtBytes, fmtTime, get } from '../api';
 import { Badge, Button, Card, ConfirmButton, EmptyState, ErrorState, Field, Input, PageHeader, Skeleton, StatusBadge, cx, errMsg, inputCls, toast } from '../ui';
-import { useMe } from '../App';
+import { useMe, useTitle } from '../hooks';
 import { usePlaylists } from './Playlists';
 import { useDestinations } from './Destinations';
 
@@ -42,6 +42,7 @@ function Controls({ s }: { s: Stream }) {
 }
 
 export function Streams() {
+  useTitle('Emisiones');
   const q = useQuery<{ items: Stream[] }>({ queryKey: ['streams'], queryFn: () => get('/v1/streams'), refetchInterval: 3000 });
   return (
     <>

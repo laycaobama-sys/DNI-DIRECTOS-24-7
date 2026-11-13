@@ -3,10 +3,9 @@
 SaaS de emisión continua: sube vídeos, ordénalos en una playlist y emítelos 24/7 a cualquier destino RTMP(S)
 desde la nube. Especificación: [`docs/MASTER_SPEC.md`](docs/MASTER_SPEC.md).
 
-> **Estado:** web, API, base de datos y almacenamiento desplegados en Cloudflare
-> (<https://dni-directos.ibraguimova19.workers.dev>, `pnpm smoke:prod` 20/20). **El motor FFmpeg todavía no corre en
-> Cloudflare** (la cuenta no tiene acceso a Containers): se ejecuta con `pnpm engine:prod` en un equipo propio.
-> **Nunca se ha emitido a YouTube o Twitch** en las pruebas. Lista exacta de lo probado y lo
+> **Estado:** todo desplegado en Cloudflare (<https://dni-directos.ibraguimova19.workers.dev>): web, API, D1, R2 y el
+> motor FFmpeg en Cloudflare Containers (`pnpm smoke:prod` 20/20). No hace falta ningún PC encendido.
+> **Pendiente de prueba real:** una emisión completa a un canal de YouTube con clave válida. Lista exacta de lo probado y lo
 > pendiente en [`docs/ACCEPTANCE_TESTS.md`](docs/ACCEPTANCE_TESTS.md).
 
 ## Arranque local (sin Docker)

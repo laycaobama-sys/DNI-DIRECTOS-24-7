@@ -1,10 +1,11 @@
 import { type DragEvent, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CloudUpload, Film, Image as ImageIcon, Music, RotateCw, Trash2 } from 'lucide-react';
-import { type Media, api, fmtBytes, fmtDuration, get, uploadFile } from '../api';
+import { type Media, api, fmtBytes, fmtDuration, fmtSpeed, get, uploadFile } from '../api';
 import { Button, Card, ConfirmButton, EmptyState, ErrorState, PageHeader, Progress, Skeleton, StatusBadge, cx, errMsg, toast } from '../ui';
+import { useTitle } from '../hooks';
 
-interface Uploading { key: string; name: string; pct: number; error?: string }
+interface Uploading { key: string; name: string; size: number; pct: number; speed: number; phase: 'uploading' | 'finishing'; error?: string }
 
 export function useMedia(poll = true) {
   return useQuery<{ items: Media[]; storage: { usedBytes: number; limitBytes: number } }>({
@@ -14,6 +15,7 @@ export function useMedia(poll = true) {
 }
 
 export function Library() {
+  useTitle('Biblioteca');
   const qc = useQueryClient();
   const q = useMedia();
   const [uploads, setUploads] = useState<Uploading[]>([]);
@@ -22,17 +24,18 @@ export function Library() {
   const del = useMutation({ mutationFn: (id: string) => api('DELETE', `/v1/media/${id}`), onSuccess: () => { toast('Archivo borrado'); return qc.invalidateQueries({ queryKey: ['media'] }); } });
   const retry = useMutation({ mutationFn: (id: string) => api('POST', `/v1/media/${id}/retry`), onSuccess: () => qc.invalidateQueries({ queryKey: ['media'] }), onError: (e) => toast(errMsg(e), 'error') });
 
-  async function addFiles(files: FileList | File[]) {
-    for (const file of [...files]) {
-      const key = `${file.name}-${file.size}-${Date.now()}`;
-      setUploads((u) => [...u, { key, name: file.name, pct: 0 }]);
+  /** Todas las subidas arrancan a la vez (no en fila); la red se comparte entre ellas en api.uploadFile. */
+  function addFiles(files: FileList | File[]) {
+    const list = [...files];
+    const batch = list.map((file, i) => ({ key: `${file.name}-${file.size}-${Date.now()}-${i}`, name: file.name, size: file.size, pct: 0, speed: 0, phase: 'uploading' as const }));
+    setUploads((u) => [...u, ...batch]);
+    list.forEach((file, i) => {
+      const key = batch[i]!.key;
       const set = (patch: Partial<Uploading>) => setUploads((u) => u.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-      try {
-        await uploadFile(file, (pct) => set({ pct }));
-        setUploads((u) => u.filter((x) => x.key !== key));
-        await qc.invalidateQueries({ queryKey: ['media'] });
-      } catch (e) { set({ error: errMsg(e) }); }
-    }
+      void uploadFile(file, (p) => set({ pct: p.pct, speed: p.bytesPerSec, phase: p.phase }))
+        .then(async () => { setUploads((u) => u.filter((x) => x.key !== key)); await qc.invalidateQueries({ queryKey: ['media'] }); })
+        .catch((e) => set({ error: errMsg(e) }));
+    });
   }
   const onDrop = (e: DragEvent) => { e.preventDefault(); setOver(false); if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files); };
 
@@ -45,10 +48,11 @@ export function Library() {
         onChange={(e) => { if (e.target.files?.length) void addFiles(e.target.files); e.target.value = ''; }} />
 
       <div onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={onDrop}
-        className={cx('mb-6 rounded-2xl border-2 border-dashed px-6 py-8 text-center text-sm transition-colors', over ? 'border-air-500 bg-air-500/5' : 'border-ink-300 dark:border-ink-700')}>
-        <CloudUpload className="mx-auto mb-2 size-6 text-ink-400" aria-hidden />
-        <p className="font-medium">Arrastra aquí tus archivos</p>
-        <p className="mt-1 text-ink-500">MP4, MOV, MKV o WebM. La subida se hace por partes y se reintenta sola si falla la conexión.</p>
+        onClick={() => input.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') input.current?.click(); }}
+        className={cx('mb-6 cursor-pointer rounded-2xl border-2 border-dashed px-6 py-10 text-center text-sm transition-all', over ? 'scale-[1.01] border-air-500 bg-air-500/5' : 'border-ink-300 hover:border-ink-400 dark:border-white/10 dark:hover:border-white/20')}>
+        <span className="bg-signal mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl text-white shadow-lg shadow-air-500/25"><CloudUpload className="size-6" aria-hidden /></span>
+        <p className="font-semibold">Arrastra aquí tus vídeos o pulsa para elegirlos</p>
+        <p className="mt-1 text-ink-500">Selecciona varios a la vez: suben en paralelo, se reanudan si falla la red y se preparan para emitir automáticamente. MP4, MOV, MKV o WebM, hasta 4 GB.</p>
       </div>
 
       {uploads.length > 0 && (
@@ -57,7 +61,8 @@ export function Library() {
             <div key={u.key}>
               <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                 <span className="truncate font-medium">{u.name}</span>
-                {u.error ? <button className="text-xs text-ink-500 hover:underline" onClick={() => setUploads((x) => x.filter((y) => y.key !== u.key))}>Descartar</button> : <span className="text-ink-500">{u.pct}%</span>}
+                {u.error ? <button className="text-xs text-ink-500 hover:underline" onClick={() => setUploads((x) => x.filter((y) => y.key !== u.key))}>Descartar</button>
+                  : <span className="shrink-0 font-mono text-xs tabular-nums text-ink-500">{u.phase === 'finishing' ? 'Finalizando…' : `${Math.floor(u.pct)}%${u.speed ? ` · ${fmtSpeed(u.speed)}` : ''}`}</span>}
               </div>
               {u.error ? <p role="alert" className="text-sm text-red-600 dark:text-red-400">{u.error}</p> : <Progress value={u.pct} />}
             </div>
@@ -84,7 +89,8 @@ export function Library() {
                       <p className="min-w-0 break-words text-sm font-medium" title={m.filename}>{m.filename}</p>
                       <StatusBadge status={m.status} />
                     </div>
-                    {m.status === 'processing' && <Progress value={m.progress} />}
+                    {m.status === 'processing' && <div className="space-y-1"><Progress value={m.progress} /><p className="text-xs text-ink-500">Convirtiendo para emitir… {m.progress}%</p></div>}
+                    {m.status === 'queued' && <p className="shimmer rounded-lg bg-sky-500/10 px-2.5 py-1.5 text-xs text-sky-700 dark:text-sky-300">Arrancando el servidor de conversión…</p>}
                     {m.status === 'failed' && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{m.error?.message}</p>}
                     <p className="text-xs text-ink-500">{[fmtBytes(m.sizeBytes), m.width && `${m.width}×${m.height}`, m.videoCodec?.toUpperCase(), m.fps && `${Math.round(m.fps)} fps`, m.hasAudio === false && 'sin audio'].filter(Boolean).join(' · ')}</p>
                     <div className="mt-auto flex justify-end gap-1 pt-1">

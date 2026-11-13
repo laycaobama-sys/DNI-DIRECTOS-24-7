@@ -7,11 +7,13 @@ import { CSS } from '@dnd-kit/utilities';
 import { ArrowLeft, GripVertical, ListVideo, Plus, Trash2, X } from 'lucide-react';
 import { type Media, type Playlist, api, fmtDuration, fmtTime, get } from '../api';
 import { Badge, Button, Card, ConfirmButton, EmptyState, ErrorState, Field, Input, Modal, PageHeader, Skeleton, StatusBadge, errMsg, toast } from '../ui';
+import { useTitle } from '../hooks';
 import { useMedia } from './Library';
 
 export const usePlaylists = () => useQuery<{ items: Playlist[] }>({ queryKey: ['playlists'], queryFn: () => get('/v1/playlists') });
 
 export function Playlists() {
+  useTitle('Playlists');
   const q = usePlaylists();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);

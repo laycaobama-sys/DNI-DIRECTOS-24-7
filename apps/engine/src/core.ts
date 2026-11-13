@@ -27,6 +27,7 @@ export const cfg = {
   ffmpeg: env.FFMPEG_PATH ?? optionalBinary(['ffmpeg', 'static'].join('-'), (m) => m as string, 'ffmpeg'),
   ffprobe: env.FFPROBE_PATH ?? optionalBinary(['ffprobe', 'static'].join('-'), (m) => (m as { path?: string }).path, 'ffprobe'),
   transcodeThreads: Number(env.TRANSCODE_THREADS ?? 0),
+  mediaConcurrency: Math.max(1, Number(env.MEDIA_CONCURRENCY ?? 2)),
   cacheMaxBytes: Number(env.CACHE_MAX_BYTES ?? 20 * 1024 ** 3),
   /** Reinicio periódico del desfase de timestamps (el PTS de MPEG-TS desborda a las ~26,5 h). */
   tsResetSec: Number(env.TS_RESET_SEC ?? 12 * 3600),
@@ -106,3 +107,11 @@ export function runProcess(bin: string, args: string[], opts: { onStdoutLine?: (
 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export const lastLine = (s: string) => redactRtmp(s.trim().split(/\r?\n/).filter(Boolean).pop() ?? '').slice(0, 300);
+
+/** Línea de error más significativa de la salida de FFmpeg (no el ruido de sondeo que suele quedar al final). */
+export function errorLine(stderr: string): string {
+  const lines = stderr.trim().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const hit = [...lines].reverse().find((l) => /error|failed|refused|timed? ?out|unable|invalid|denied|unreachable|broken pipe|reset|could not|cannot/i.test(l));
+  return redactRtmp(hit ?? lines.pop() ?? '').replace(/^\[[^\]]+\]\s*/, '').slice(0, 300);
+}
+

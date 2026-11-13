@@ -12,6 +12,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { type Env, first } from './lib/core';
+import { engineMaxNodes } from './lib/settings';
 
 const PORT = 8080;
 const INACTIVITY_MS = 10 * 60_000;
@@ -75,14 +76,40 @@ export class EngineNode extends DurableObject<Env> {
     const container = this.ctx.container;
     if (!container) return Response.json({ ok: false, error: 'containers_not_configured' }, { status: 503 });
     const nodeId = new URL(request.url).searchParams.get('node') ?? 'cf-node-0';
-    let started = false;
+    if (new URL(request.url).pathname === '/status') {
+      // Solo consulta: no arranca nada ni renueva el temporizador.
+      let health: unknown = null;
+      if (container.running) {
+        try { health = await (await container.getTcpPort(PORT).fetch('http://container/healthz', { signal: AbortSignal.timeout(3000) })).json(); } catch { /* sin respuesta */ }
+      }
+      return Response.json({ running: container.running, assetsCurrent: (await this.ctx.storage.get<string>('assets')) === (this.env.ENGINE_ASSETS ?? ''), health });
+    }
+    let started = false, restarted = false;
+    const url = new URL(request.url);
+    const wanted = this.env.ENGINE_ASSETS ?? '';
+    const stored = await this.ctx.storage.get<string>('assets');
+    const forceRestart = url.pathname === '/restart';
+    // rollout y restart solo actúan sobre nodos ya encendidos: nunca arrancan contenedores sin trabajo.
+    if ((url.pathname === '/rollout' || forceRestart) && !container.running) {
+      return Response.json({ ok: true, started: false, restarted: false, running: false, assetsCurrent: stored === wanted, health: null });
+    }
+    if (container.running && (stored !== wanted || forceRestart)) {
+      // Versión nueva del motor publicada (o reinicio pedido): apagado ordenado, que libera los canales para que
+      // se reanuden, y arranque con el código nuevo.
+      console.log(JSON.stringify({ msg: 'engine restart', node: nodeId, reason: forceRestart ? 'manual' : 'new_assets' }));
+      container.signal(15);
+      await Promise.race([container.monitor().catch(() => {}), scheduler.wait(12_000)]);
+      if (container.running) await container.destroy().catch((e) => console.error(JSON.stringify({ msg: 'destroy failed', error: String(e) })));
+      restarted = true;
+    }
     if (!container.running) {
+      await this.ctx.storage.put('assets', wanted);
       container.start({
         enableInternet: true,
         entrypoint: ['node', '--input-type=module', '-e', BOOTSTRAP],
         env: {
           API_URL: this.env.PUBLIC_URL ?? '', ENGINE_TOKEN: this.env.ENGINE_TOKEN, NODE_ID: nodeId, PORT: String(PORT),
-          CAPACITY: this.env.ENGINE_CAPACITY || '4', CACHE_MAX_BYTES: String(8 * 1024 ** 3), TRANSCODE_THREADS: '2',
+          CAPACITY: this.env.ENGINE_CAPACITY || '4', CACHE_MAX_BYTES: String(8 * 1024 ** 3), MEDIA_CONCURRENCY: '2',
         },
       });
       started = true;
@@ -95,8 +122,23 @@ export class EngineNode extends DurableObject<Env> {
       const r = await container.getTcpPort(PORT).fetch('http://container/healthz', { signal: AbortSignal.timeout(3000) });
       health = await r.json();
     } catch { /* aún arrancando */ }
-    return Response.json({ ok: true, started, running: container.running, health });
+    return Response.json({ ok: true, started, restarted, running: container.running, assetsCurrent: (await this.ctx.storage.get<string>('assets')) === wanted, health });
   }
+}
+
+/** Estado o acción sobre los nodos de Cloudflare (panel de administración y diagnóstico). */
+export async function engineNodes(env: Env, action: 'status' | 'ensure' | 'restart' | 'rollout' = 'status') {
+  if (!env.ENGINE) return [];
+  // Status/rollout/restart recorren todos los nodos posibles; ensure solo los configurados.
+  const max = action === 'ensure' ? await engineMaxNodes(env) : 10;
+  return Promise.all(Array.from({ length: max }, async (_, i) => {
+    try {
+      const r = await env.ENGINE!.getByName(`node-${i}`).fetch(`http://engine/${action}?node=cf-node-${i}`);
+      return { name: `cf-node-${i}`, ...((await r.json()) as object) };
+    } catch (e) {
+      return { name: `cf-node-${i}`, error: String(e).slice(0, 300) };
+    }
+  }));
 }
 
 /**
@@ -111,8 +153,10 @@ export async function wakeEngines(env: Env): Promise<{ nodes: number }> {
           + (SELECT COUNT(*) FROM media_variants WHERE status IN ('pending','processing')) AS media`);
   if (!w || (w.streams === 0 && w.media === 0)) return { nodes: 0 };
   const capacity = Math.max(1, Number(env.ENGINE_CAPACITY) || 4);
-  const max = Math.max(1, Number(env.ENGINE_MAX_NODES) || 3);
-  const nodes = Math.min(max, Math.max(1, Math.ceil(w.streams / capacity)));
+  const max = await engineMaxNodes(env);
+  // Escala por emisiones y también por vídeos pendientes: cada nodo convierte MEDIA_CONCURRENCY a la vez.
+  const perNodeMedia = 2;
+  const nodes = Math.min(max, Math.max(1, Math.ceil(w.streams / capacity), Math.ceil(w.media / perNodeMedia)));
   await Promise.all(Array.from({ length: nodes }, (_, i) =>
     env.ENGINE!.getByName(`node-${i}`).fetch(`http://engine/ensure?node=cf-node-${i}`).then((r) => r.body?.cancel()).catch((e) =>
       console.error(JSON.stringify({ msg: 'wake failed', node: i, error: String(e) })))));
