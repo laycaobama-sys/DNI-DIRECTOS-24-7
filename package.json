@@ -16,18 +16,20 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "test": "vitest run --project unit",
-    "test:integration": "vitest run --project integration",
     "test:e2e-stream": "tsx scripts/e2e-stream.ts",
-    "tools:setup": "node scripts/setup-tools.mjs"
+    "tools:setup": "node scripts/setup-tools.mjs",
+    "dev": "node scripts/dev.mjs",
+    "seed": "node scripts/seed-dev.mjs"
   },
   "devDependencies": {
+    "@dni/shared": "workspace:*",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
     "eslint": "^10.14.0",
     "ffmpeg-static": "^5.3.0",
     "ffprobe-static": "^3.1.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.2",
     "vitest": "^5.1.0"
   }

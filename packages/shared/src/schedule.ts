@@ -35,7 +35,7 @@ export function wallTimeToUtc(w: WallTime, timeZone: string): number {
     if (p.hour === w.hour && p.minute === w.minute && p.day === w.day) return c;
   }
   // Hora inexistente: el desfase anterior al salto produce el instante desplazado hacia delante.
-  return candidates[0]!;
+  return candidates[candidates.length - 1]!;
 }
 
 export type Recurrence =

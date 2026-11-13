@@ -1,0 +1,23 @@
+# Copiar a .github/workflows/ci.yml. No se sube ahí directamente porque el token de GitHub usado
+# para el push no tenía el permiso `workflow` (ejecuta: gh auth refresh -s workflow).
+name: CI
+on: { push: { branches: [main] }, pull_request: {} }
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm tools:setup
+      - run: pnpm test:e2e-stream
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: e2e-evidencias, path: .data/e2e/resultado.json }

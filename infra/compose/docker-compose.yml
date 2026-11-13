@@ -1,0 +1,28 @@
+# Stack local con Docker: motor de emisión + ingest RTMP de pruebas. La API se ejecuta con `pnpm dev:api` (Workers/Miniflare).
+# NO PROBADO aún (sin Docker en la máquina de desarrollo). Sin Docker, usa `pnpm dev`, que sí está probado.
+# Uso: ENGINE_TOKEN=<el de apps/api/.dev.vars> docker compose -f infra/compose/docker-compose.yml up --build
+# Docker Compose local NO equivale a alta disponibilidad en producción.
+services:
+  rtmp:
+    image: bluenviron/mediamtx:1.21.3
+    ports: ["1935:1935"]
+    environment: { MTX_RTSP: "no", MTX_HLS: "no", MTX_WEBRTC: "no", MTX_SRT: "no", MTX_MOQ: "no" }
+  engine:
+    build: { context: ../.., dockerfile: infra/docker/engine.Dockerfile }
+    environment:
+      API_URL: http://host.docker.internal:8787
+      ENGINE_TOKEN: ${ENGINE_TOKEN:?define ENGINE_TOKEN}
+      CAPACITY: "2"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: ["engine-data:/data"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+    restart: unless-stopped
+    depends_on: [rtmp]
+volumes:
+  engine-data:

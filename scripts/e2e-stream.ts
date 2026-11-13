@@ -59,7 +59,7 @@ function ffmpegCount(): number {
 const mediamtx = (name: string, port: number) => {
   const yml = path.join(dir, `${name}.yml`);
   writeFileSync(yml, `logLevel: info\nrtmp: yes\nrtmpAddress: :${port}\nrtsp: no\nhls: no\nwebrtc: no\nsrt: no\nmoq: no\napi: no\nmetrics: no\npprof: no\nplayback: no\npaths:\n  all_others:\n`);
-  return start(name, MEDIAMTX, [yml]);
+  return startIn(dir, name, MEDIAMTX, [yml]); // cwd en .data/: MediaMTX genera ahí su certificado autofirmado
 };
 const engine = (n: number) => start(`engine-${n}`, process.execPath, ['--import', 'tsx', 'apps/engine/src/index.ts'], {
   API_URL: API, ENGINE_TOKEN, NODE_ID: `e2e-node-${n}`, DATA_DIR: path.join(dir, `engine-${n}`), FFMPEG_PATH: FFMPEG, FFPROBE_PATH: FFPROBE, HEARTBEAT_MS: '2000',
@@ -132,7 +132,7 @@ async function main() {
 
   step('Levantando API (Workers local), 2 ingests RTMP y aplicando migraciones');
   execFileSync(process.execPath, wrangler('d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', path.join(dir, 'state')), { cwd: path.join(root, 'apps/api'), stdio: 'pipe', env: { ...process.env, CI: '1' } });
-  let mtxB = mediamtx('rtmp-b', RTMP_B);
+  const mtxB = mediamtx('rtmp-b', RTMP_B);
   mediamtx('rtmp-a', RTMP_A);
   startIn(path.join(root, 'apps/api'), 'api', process.execPath, wrangler('dev', '--port', String(API_PORT), '--persist-to', path.join(dir, 'state'), '--var', 'LEASE_TTL_SEC:10', '--show-interactive-dev-session=false'), { CI: '1' }).on('exit', () => {});
   await waitFor('API healthz', async () => (await fetch(`${API}/healthz`)).ok, 90_000);
@@ -151,7 +151,7 @@ async function main() {
   const ids = { a: await A.upload(path.join(m, 'a.mp4'), 'a.mp4'), b: await A.upload(path.join(m, 'b.mkv'), 'b.mkv'), c: await A.upload(path.join(m, 'c.webm'), 'c.webm'), bad: await A.upload(path.join(m, 'corrupto.mp4'), 'corrupto.mp4') };
   const exe = await A.req('POST', '/v1/media/upload-intents', { filename: 'virus.exe', size: 10 });
   check('Formato no admitido rechazado (422)', exe.status === 422, exe.json?.error?.code);
-  let eng = engine(1);
+  const eng = engine(1);
   const media = await waitFor('procesamiento de medios', async () => {
     const items = (await A.ok('GET', '/v1/media')).items as any[];
     return items.every((i) => i.status === 'ready' || i.status === 'failed') ? items : null;
@@ -216,7 +216,7 @@ async function main() {
   check('Estado «degraded» con el destino B en reintento', ['retrying', 'connecting', 'failed'].includes(dB(s2).state) && dA(s2).state === 'live', `A=${dA(s2).state} B=${dB(s2).state} · ${s2.statusReason}`);
   const pa2 = probeRtmp(urlA);
   check('El destino A sigue recibiendo señal y no se reinició', pa2.video?.codec_name === 'h264' && dA(await get()).restarts === 0);
-  mtxB = mediamtx('rtmp-b', RTMP_B);
+  mediamtx('rtmp-b', RTMP_B);
   await waitFor('reconexión de B', async () => (await get()).status === 'live', 90_000);
   check('Reconexión automática del destino B (backoff) → «live»', probeRtmp(urlB).video?.codec_name === 'h264', `reinicios de B: ${dB(await get()).restarts}`);
 
@@ -233,7 +233,7 @@ async function main() {
   killTree(eng);
   await sleep(3000);
   check('Sin procesos FFmpeg huérfanos tras matar el nodo', ffmpegCount() === 0, `ffmpeg vivos: ${ffmpegCount()}`);
-  eng = engine(2);
+  engine(2);
   await waitFor('evento engine_lost', async () => (await events()).some((e) => e.type === 'engine_lost'), 60_000);
   await waitFor('recuperación a live', async () => { const s = await get(); return s.status === 'live' && s.engine.online; }, 90_000);
   const ev = await events();
