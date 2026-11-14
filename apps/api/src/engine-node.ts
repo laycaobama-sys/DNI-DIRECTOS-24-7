@@ -17,16 +17,28 @@ import { engineMaxNodes } from './lib/settings';
 const PORT = 8080;
 const INACTIVITY_MS = 10 * 60_000;
 
-/** Cargador que se ejecuta dentro del contenedor (Node, sin dependencias). */
+/**
+ * Cargador que se ejecuta dentro del contenedor (Node, sin dependencias, como root):
+ *  1. Instala y arranca nscd: los binarios estáticos de FFmpeg (glibc estática) NO pueden resolver nombres de
+ *     dominio por sí mismos; nscd les da resolución DNS (sin él no se llega a a.rtmps.youtube.com).
+ *  2. Descarga motor y FFmpeg verificados por SHA-256 desde la API y ejecuta el motor como uid 1000.
+ *  3. Si el motor sale con código 75 (hay versión nueva publicada), vuelve a descargar y lo relanza sin apagar
+ *     el contenedor: así cada despliegue actualiza los nodos aunque el contenedor siga encendido.
+ */
 const BOOTSTRAP = `
-import { mkdirSync, writeFileSync, chownSync } from 'node:fs';
+import { mkdirSync, writeFileSync, chownSync, existsSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 const { API_URL, ENGINE_TOKEN } = process.env;
 const dir = '/opt/engine';
 mkdirSync(dir, { recursive: true });
 mkdirSync('/data', { recursive: true });
+try {
+  if (!existsSync('/usr/sbin/nscd')) execSync('apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends nscd >/dev/null', { stdio: 'inherit', timeout: 180000 });
+  execSync('nscd', { stdio: 'inherit' });
+  console.log('bootstrap: nscd activo (DNS para FFmpeg)');
+} catch (e) { console.error('bootstrap: nscd no disponible: ' + e.message); }
 async function get(name) {
   for (let i = 0; ; i++) {
     try {
@@ -38,24 +50,31 @@ async function get(name) {
       if (!want || want !== got) throw new Error('sha256 no coincide: ' + name);
       return buf;
     } catch (e) {
-      if (i >= 5) throw e;
+      if (i >= 8) throw e;
       console.error('bootstrap: reintento ' + name + ': ' + e.message);
       await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
     }
   }
 }
-for (const [name, out, mode] of [['index.mjs', 'index.mjs', 0o644], ['ffmpeg.gz', 'ffmpeg', 0o755], ['ffprobe.gz', 'ffprobe', 0o755]]) {
-  const buf = await get(name);
-  writeFileSync(dir + '/' + out, name.endsWith('.gz') ? gunzipSync(buf) : buf, { mode });
+let child = null;
+for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => { if (child) child.kill(s); else process.exit(0); });
+for (;;) {
+  for (const [name, out, mode] of [['index.mjs', 'index.mjs', 0o644], ['ffmpeg.gz', 'ffmpeg', 0o755], ['ffprobe.gz', 'ffprobe', 0o755]]) {
+    if (name !== 'index.mjs' && existsSync(dir + '/' + out)) continue;
+    const buf = await get(name);
+    writeFileSync(dir + '/' + out, name.endsWith('.gz') ? gunzipSync(buf) : buf, { mode });
+  }
+  chownSync('/data', 1000, 1000);
+  console.log('bootstrap: motor y FFmpeg verificados; arrancando');
+  child = spawn(process.execPath, [dir + '/index.mjs'], {
+    stdio: 'inherit', uid: 1000, gid: 1000,
+    env: { ...process.env, FFMPEG_PATH: dir + '/ffmpeg', FFPROBE_PATH: dir + '/ffprobe', DATA_DIR: '/data', HOME: '/tmp', ENGINE_SELF_UPDATE: '1' },
+  });
+  const code = await new Promise((r) => child.on('exit', (c) => r(c)));
+  child = null;
+  if (code !== 75) process.exit(code ?? 1);
+  console.log('bootstrap: versión nueva del motor; recargando');
 }
-chownSync('/data', 1000, 1000);
-console.log('bootstrap: motor y FFmpeg verificados; arrancando');
-const child = spawn(process.execPath, [dir + '/index.mjs'], {
-  stdio: 'inherit', uid: 1000, gid: 1000,
-  env: { ...process.env, FFMPEG_PATH: dir + '/ffmpeg', FFPROBE_PATH: dir + '/ffprobe', DATA_DIR: '/data', HOME: '/tmp' },
-});
-for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => child.kill(s));
-child.on('exit', (code) => process.exit(code ?? 1));
 `;
 
 export class EngineNode extends DurableObject<Env> {
@@ -76,6 +95,13 @@ export class EngineNode extends DurableObject<Env> {
     const container = this.ctx.container;
     if (!container) return Response.json({ ok: false, error: 'containers_not_configured' }, { status: 503 });
     const nodeId = new URL(request.url).searchParams.get('node') ?? 'cf-node-0';
+    if (new URL(request.url).pathname === '/diag') {
+      if (!container.running) return Response.json({ error: 'not_running' });
+      try {
+        const r = await container.getTcpPort(PORT).fetch('http://container/diag', { signal: AbortSignal.timeout(80_000) });
+        return new Response(r.body, { headers: { 'content-type': 'application/json' } });
+      } catch (e) { return Response.json({ error: String(e) }); }
+    }
     if (new URL(request.url).pathname === '/status') {
       // Solo consulta: no arranca nada ni renueva el temporizador.
       let health: unknown = null;

@@ -1,7 +1,8 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, KeyRound, Lock, LockOpen, Plus, Send, Trash2 } from 'lucide-react';
+import { ExternalLink, KeyRound, Lock, LockOpen, Plus, Radio, Send, Trash2 } from 'lucide-react';
+import { YoutubeWizard } from './YoutubeWizard';
 import { type Destination, type YoutubeAccount, api, fmtTime, get } from '../api';
 import { GoogleIcon, YoutubeIcon as Youtube } from '../brand';
 import { useTitle } from '../hooks';
@@ -35,10 +36,11 @@ function YoutubeConnect({ onCreated }: { onCreated: () => void }) {
   const nav = useNavigate();
   const q = useQuery<{ items: YoutubeAccount[]; available: boolean }>({ queryKey: ['yt-accounts'], queryFn: () => get('/v1/integrations/youtube/accounts') });
   const [target, setTarget] = useState<YoutubeAccount | null>(null);
+  const [wizard, setWizard] = useState<YoutubeAccount | null>(null);
   const [created, setCreated] = useState<{ watchUrl: string; studioUrl: string } | null>(null);
   useEffect(() => {
     const p = new URLSearchParams(loc.search);
-    if (p.get('youtube') === 'connected') toast('Canal de YouTube conectado');
+    if (p.get('youtube') === 'connected') toast('Canal de YouTube conectado. Prepara tu directo 24/7.');
     const err = p.get('youtube_error');
     if (err) toast(YT_ERRORS[err] ?? 'No se pudo conectar YouTube.', 'error');
     if (p.has('youtube') || err) nav('/app/destinations', { replace: true });
@@ -56,7 +58,7 @@ function YoutubeConnect({ onCreated }: { onCreated: () => void }) {
       <div className="relative flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-xl">
           <h2 className="flex items-center gap-2 text-lg font-semibold"><Youtube />YouTube con un clic</h2>
-          <p className="mt-1 text-sm text-ink-500">Conecta tu canal con tu cuenta de Google y crearemos el directo en YouTube por ti, con la API oficial. Sin copiar claves de emisión.</p>
+          <p className="mt-1 text-sm text-ink-500">Conecta tu canal con Google y prepara tu directo 24/7 aquí mismo: elige o sube tus vídeos, crea la playlist y emite. Sin copiar claves de emisión.</p>
         </div>
         <a href="/v1/integrations/youtube/start" className={buttonCls('secondary')}><GoogleIcon />{q.data.items.length ? 'Conectar otro canal' : 'Conectar con Google'}</a>
       </div>
@@ -69,14 +71,16 @@ function YoutubeConnect({ onCreated }: { onCreated: () => void }) {
                 <span className="min-w-0"><span className="block truncate font-semibold">{a.title}</span><span className="block text-xs text-ink-500">Conectado el {fmtTime(a.connectedAt)}</span></span>
               </span>
               <span className="flex gap-2">
-                <Button variant="primary" onClick={() => setTarget(a)}><Plus className="size-4" />Crear directo en YouTube</Button>
+                <Button variant="primary" onClick={() => setWizard(a)}><Radio className="size-4" />Preparar directo 24/7</Button>
+                <Button variant="ghost" onClick={() => setTarget(a)}>Solo crear destino</Button>
                 <ConfirmButton buttonVariant="ghost" label="Desconectar" title={`Desconectar ${a.title}`} confirmLabel="Desconectar" message="Se revocará el acceso a tu canal. Los destinos ya creados siguen funcionando con su clave." onConfirm={() => disconnect.mutateAsync(a.id)} />
               </span>
             </li>
           ))}
         </ul>
       )}
-      <Modal open={!!target} title={`Nuevo directo en ${target?.title ?? 'YouTube'}`} onClose={() => setTarget(null)}>
+      {wizard && <YoutubeWizard account={wizard} open={!!wizard} onClose={() => setWizard(null)} />}
+      <Modal open={!!target} title={`Nuevo destino en ${target?.title ?? 'YouTube'}`} onClose={() => setTarget(null)}>
         <form className="space-y-4" onSubmit={(e: FormEvent<HTMLFormElement>) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);

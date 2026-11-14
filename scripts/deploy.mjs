@@ -101,7 +101,7 @@ let containersOk = true;
 function deploy(publicUrl) {
   const vars = ['--var', `ENGINE_ASSETS:${JSON.stringify(assets)}`];
   if (publicUrl) vars.push('--var', `PUBLIC_URL:${publicUrl}`, '--var', `APP_ORIGINS:${publicUrl}`);
-  let out = containersOk ? wrangler(['deploy', '--env', 'production', ...vars], { allowFail: true }) : '__FAILED__ Unauthorized container';
+  let out = containersOk ? wrangler(['deploy', '--env', 'production', '--containers-rollout', 'immediate', ...vars], { allowFail: true }) : '__FAILED__ Unauthorized container';
   if (out.startsWith('__FAILED__') && /Unauthorized/.test(out) && /container/i.test(out)) {
     // La cuenta no puede crear aplicaciones de Containers: se publica todo lo demás y el motor queda pendiente.
     containersOk = false;

@@ -131,3 +131,16 @@ aviso global, número máximo de servidores y las **credenciales de Google** (se
 - `pnpm smoke:prod -- --egress`: además arranca una emisión hacia YouTube con clave inventada (YouTube la rechaza;
   sirve para ver errores, no prueba la salida).
 - Diagnóstico de nodos: `GET /internal/engine/nodes` (Bearer ENGINE_TOKEN) o la pestaña «Servidores» del panel.
+
+## Red de salida del motor (importante)
+FFmpeg nunca abre conexiones a Internet: publica en un relé local (`apps/engine/src/relay.ts`) y Node hace el DNS,
+el TLS (rtmps con verificación de certificado y SNI) y la conexión. Motivo: el binario estático de FFmpeg para Linux no
+resuelve nombres de dominio. Diagnóstico desde un nodo encendido:
+`curl -H "authorization: Bearer $ENGINE_TOKEN" https://dni-directos.ibraguimova19.workers.dev/internal/engine/diag`.
+
+## Google (estado a 14-nov-2026)
+App **en producción**: cualquier cuenta de Google puede registrarse e iniciar sesión (ámbitos openid/email/profile, sin aviso).
+Conectar canales de YouTube usa un ámbito sensible: hasta que Google verifique la app, los usuarios ven el aviso «Google no ha
+verificado esta app» (pueden continuar en «Configuración avanzada») y hay un tope de 100 usuarios. La verificación requiere
+un dominio propio verificado en Search Console (no se puede verificar un subdominio de workers.dev), vídeo de demostración y
+revisión de Google (semanas).

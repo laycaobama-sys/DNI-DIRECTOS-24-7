@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1 — 2026-11-14
+- **Corregido: las emisiones a YouTube no conectaban desde la nube.** El FFmpeg estático del contenedor no podía resolver
+  DNS (glibc estática) y se quedaba colgado sin llegar a YouTube. Ahora FFmpeg publica en un relé local y el motor (Node)
+  hace DNS (IPv4), TLS con verificación de certificado y la conexión real. Verificado desde Cloudflare: RTMP y RTMPS llegan
+  a YouTube y completan el saludo RTMP.
+- Errores de destino legibles («cerró la conexión: revisa la clave», «conexión rechazada»…); se filtra el ruido del decodificador.
+- Los nodos se actualizan solos tras cada despliegue (antes un contenedor encendido seguía con el motor viejo).
+- Diagnóstico de red automático de cada nodo al arrancar (`GET /internal/engine/diag`).
+- **Asistente «Directo 24/7 en YouTube»**: tras conectar el canal, elegir/subir vídeos o una playlist, configurar el directo y emitir.
+- App de Google publicada en producción (cualquier cuenta de Google puede entrar).
+
 ## 0.4.0 — 2026-11-14
 - Motor de emisión en **Cloudflare Containers** verificado: salida a YouTube por RTMPS 443 y RTMP 1935, conversión de vídeos en ~8 s sin ningún PC encendido. Escala por emisiones y por cola de vídeos; renovación automática tras cada despliegue.
 - Subida de varios archivos **a la vez** (6 conexiones compartidas, progreso por byte y velocidad); 2 conversiones simultáneas por servidor.

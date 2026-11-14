@@ -16,9 +16,13 @@ interface YtAccount { id: string; organization_id: string; channel_id: string; c
 async function accessToken(env: Env, acc: YtAccount): Promise<string> {
   const creds = await googleCredentials(env);
   if (!creds) throw new HttpError(503, 'google_not_configured', 'El acceso con Google no está configurado.');
+  let refresh: string;
+  try { refresh = await decryptSecret(env, acc.refresh_token_enc, acc.id); } catch {
+    throw new HttpError(409, 'youtube_reconnect', 'El acceso a este canal ya no es válido. Desconéctalo y vuelve a conectarlo con Google.');
+  }
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: creds.clientId, client_secret: creds.clientSecret, refresh_token: await decryptSecret(env, acc.refresh_token_enc, acc.id), grant_type: 'refresh_token' }),
+    body: new URLSearchParams({ client_id: creds.clientId, client_secret: creds.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' }),
   });
   const j = (await res.json().catch(() => null)) as { access_token?: string; error?: string } | null;
   if (!res.ok || !j?.access_token) {

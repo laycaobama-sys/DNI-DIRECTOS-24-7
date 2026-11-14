@@ -18,6 +18,7 @@ import {
   advance, isPrivateHost, redactRtmp, resolve,
 } from '@dni/shared';
 import { ApiError, api, cfg, download, errorLine, lastLine, log, sleep } from './core';
+import { type Relay, openRelay, parseTarget } from './relay';
 
 const MAX_PUSHER_BUFFER = 24 * 1024 * 1024;
 const STALL_MS = 20_000;
@@ -61,16 +62,18 @@ async function evictCache() {
   }
 }
 
-/** Devuelve un motivo de bloqueo si el host del destino resuelve a una red privada (salvo en desarrollo). */
-async function privateTarget(url: string): Promise<string | null> {
-  if (cfg.allowPrivateDestinations) return null;
-  const host = /^rtmps?:\/\/(\[[^\]]+\]|[^/:]+)/i.exec(url)?.[1]?.replace(/^\[|\]$/g, '');
-  if (!host) return 'URL de destino no válida.';
+/**
+ * Resuelve el destino desde Node (IPv4 preferente) y valida la IP real contra redes privadas (anti DNS-rebinding).
+ * Devuelve la IP a la que conectará el relé o el motivo del rechazo.
+ */
+async function resolveTarget(host: string): Promise<{ address: string } | { error: string }> {
   try {
-    const addrs = await lookup(host, { all: true });
-    return addrs.some((a) => isPrivateHost(a.address)) ? 'El destino resuelve a una red privada: conexión bloqueada.' : null;
+    const all = await lookup(host, { all: true });
+    if (!all.length) return { error: `No se pudo resolver ${host} (DNS).` };
+    if (!cfg.allowPrivateDestinations && all.some((a) => isPrivateHost(a.address))) return { error: 'El destino resuelve a una red privada: conexión bloqueada.' };
+    return { address: (all.find((a) => a.family === 4) ?? all[0]!).address };
   } catch {
-    return 'No se pudo resolver el servidor del destino (DNS).';
+    return { error: `No se pudo resolver el servidor ${host} (DNS).` };
   }
 }
 
@@ -88,7 +91,9 @@ class Pusher {
   private lastProgressAt = 0;
   private timer: NodeJS.Timeout | null = null;
   private closed = false;
-  private resolving = false;
+  private preparing = false;
+  private relay: Relay | null = null;
+  private killReason: string | null = null;
 
   constructor(readonly id: string, private url: string, private emit: (e: Omit<Ev, 'at'>) => void) {}
 
@@ -96,29 +101,44 @@ class Pusher {
   sameUrl(url: string) { return this.url === url; }
 
   start() {
-    if (this.closed || this.proc || this.resolving) return;
+    if (this.closed || this.proc || this.preparing) return;
     this.state = 'connecting';
     this.lastProgressAt = Date.now();
     this.outTimeSec = null; this.bitrateKbps = null;
-    // Anti DNS-rebinding: la API valida el nombre, aquí se valida la IP a la que realmente se va a conectar.
-    this.resolving = true;
-    void privateTarget(this.url).then((blocked) => {
-      this.resolving = false;
-      if (this.closed) { this.state = 'idle'; return; }
-      if (blocked) this.retry(blocked);
+    this.preparing = true;
+    void this.prepare().then((err) => {
+      this.preparing = false;
+      if (this.closed) { this.relay?.close(); this.relay = null; this.state = 'idle'; return; }
+      if (err) this.retry(err);
       else this.launch();
     });
   }
 
+  /** DNS + validación + relé local. FFmpeg nunca resuelve nombres ni hace TLS por sí mismo. */
+  private async prepare(): Promise<string | null> {
+    const t = parseTarget(this.url);
+    if (!t) return 'URL de destino no válida.';
+    const r = await resolveTarget(t.host);
+    if ('error' in r) return r.error;
+    try {
+      this.relay = await openRelay(t, r.address);
+      return null;
+    } catch (e) {
+      return `No se pudo preparar la conexión: ${e instanceof Error ? e.message : e}`;
+    }
+  }
+
   private launch() {
-    if (this.closed || this.proc) return;
+    const relay = this.relay;
+    if (this.closed || this.proc || !relay) return;
     this.lastProgressAt = Date.now();
+    this.killReason = null;
     const p = spawn(cfg.ffmpeg, [
       '-hide_banner', '-loglevel', 'warning', '-progress', 'pipe:1', '-stats_period', '1',
       '-fflags', '+genpts', '-analyzeduration', '5000000', '-probesize', '5000000',
       '-f', 'mpegts', '-i', 'pipe:0',
       '-map', '0:v:0', '-map', '0:a:0', '-c', 'copy', '-bsf:a', 'aac_adtstoasc',
-      '-f', 'flv', '-flvflags', 'no_duration_filesize', '-rw_timeout', '15000000', this.url,
+      '-f', 'flv', '-flvflags', 'no_duration_filesize', '-rw_timeout', '15000000', '-rtmp_tcurl', relay.tcUrl, relay.localUrl,
     ], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.proc = p;
     let stderr = '', buf = '';
@@ -149,8 +169,12 @@ class Pusher {
       this.proc = null;
       this.bytesBase += this.bytesRun; this.bytesRun = 0;
       this.bitrateKbps = null;
+      // El error del tramo de red (relé → destino) es el más preciso; después, el motivo del vigilante y FFmpeg.
+      const reason = relay.error() ?? this.killReason ?? (errorLine(stderr) || `FFmpeg terminó con código ${code}`);
+      relay.close();
+      if (this.relay === relay) this.relay = null;
       if (this.closed) { this.state = 'idle'; return; }
-      this.retry(errorLine(stderr) || (code === null ? 'El destino no respondió a tiempo (conexión cortada por el vigilante).' : `FFmpeg terminó con código ${code}`));
+      this.retry(reason);
     });
   }
 
@@ -172,7 +196,7 @@ class Pusher {
     const p = this.proc;
     if (!p || p.stdin.destroyed) return;
     if (p.stdin.writableLength > MAX_PUSHER_BUFFER) {
-      this.lastError = 'El destino no acepta datos (buffer lleno).';
+      this.killReason = 'El destino no acepta datos al ritmo de emisión (conexión demasiado lenta).';
       p.kill('SIGKILL');
       return;
     }
@@ -182,7 +206,7 @@ class Pusher {
   /** Watchdog: sin avance de salida mientras el feeder produce ⇒ reinicio del proceso. */
   check(feederActive: boolean) {
     if (this.proc && feederActive && Date.now() - this.lastProgressAt > STALL_MS) {
-      this.lastError = 'Sin avance de señal hacia el destino.';
+      this.killReason = this.relay?.error() ?? 'El destino no confirmó la recepción de la señal en 20 s.';
       this.proc.kill('SIGKILL');
     }
   }
@@ -191,7 +215,7 @@ class Pusher {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
     const p = this.proc;
-    if (!p) { this.state = 'idle'; return; }
+    if (!p) { this.relay?.close(); this.relay = null; this.state = 'idle'; return; }
     p.stdin.end(); // permite a FFmpeg cerrar la conexión RTMP limpiamente
     await Promise.race([new Promise<void>((r) => p.once('close', () => r())), sleep(3000)]);
     if (this.proc) p.kill('SIGKILL');

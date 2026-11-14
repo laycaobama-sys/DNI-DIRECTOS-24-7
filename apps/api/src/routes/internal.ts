@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { z } from 'zod';
 import { engineNodes } from '../engine-node';
+import { setSetting } from '../lib/settings';
 import { type HeartbeatResponse, type MediaJob, type StreamAssignment, type StreamConfigRefresh, UPLOAD_PART_SIZE, heartbeatSchema, joinRtmp, mediaResultSchema, redactRtmp } from '@dni/shared';
 import { type AppEnv, type Env, HttpError, addEvent, all, decryptSecret, first, newId, notFound, parseBody, run, timingSafeEqual } from '../lib/core';
 import { type StreamRow, configRevision, resolvePlaylist, streamDestinations } from './streams';
@@ -62,6 +63,23 @@ internal.use('*', engineAuth);
 internal.get('/engine/nodes', async (c) => {
   const action = c.req.query('action');
   return c.json({ nodes: await engineNodes(c.env, action === 'restart' || action === 'ensure' || action === 'rollout' ? action : 'status') });
+});
+
+const engineSha = (env: Env): string | undefined => { try { return (JSON.parse(env.ENGINE_ASSETS || '{}') as Record<string, string>)['index.mjs']; } catch { return undefined; } };
+
+/** El motor informa de su diagnóstico de red al arrancar; se guarda para el panel del propietario. */
+internal.post('/engine/report', async (c) => {
+  const b = await parseBody(c, z.object({ nodeId: z.string().min(1).max(64), diag: z.record(z.unknown()) }));
+  await setSetting(c.env, `engine_diag:${b.nodeId}`, JSON.stringify({ at: Date.now(), ...b.diag }).slice(0, 8000));
+  return c.json({ ok: true });
+});
+
+/** Diagnóstico de red/FFmpeg hacia YouTube desde un nodo encendido (`?node=0`). */
+internal.get('/engine/diag', async (c) => {
+  if (!c.env.ENGINE) throw notFound('Motor');
+  const n = Math.max(0, Math.min(9, Number(c.req.query('node') ?? 0) || 0));
+  const r = await c.env.ENGINE.getByName(`node-${n}`).fetch(`http://engine/diag?node=cf-node-${n}`);
+  return new Response(r.body, { headers: { 'content-type': 'application/json' } });
 });
 
 /** Artefactos del motor (bundle y binarios de FFmpeg) para el cargador del contenedor. Direccionados por SHA-256. */
@@ -208,7 +226,7 @@ internal.post('/streams/claim', async (c) => {
     ON CONFLICT(id) DO UPDATE SET hostname = excluded.hostname, version = excluded.version, capacity = excluded.capacity, running = excluded.running, last_seen_at = excluded.last_seen_at`,
     b.nodeId, b.hostname ?? null, b.version ?? null, b.capacity, b.running, now);
   await reconcile(c.env);
-  if (b.running >= b.capacity) return c.json({ assignment: null });
+  if (b.running >= b.capacity) return c.json({ assignment: null, engineSha: engineSha(c.env) });
 
   const sessionId = newId('ses');
   const s = await first<StreamRow & { prev_status: string }>(c.env.DB,
@@ -218,17 +236,17 @@ internal.post('/streams/claim', async (c) => {
                  AND (lease_owner IS NULL OR lease_expires_at < ?4) ORDER BY updated_at LIMIT 1)
        AND (lease_owner IS NULL OR lease_expires_at < ?4)
      RETURNING *`, b.nodeId, now + ttlMs(c.env), sessionId, now);
-  if (!s) return c.json({ assignment: null });
+  if (!s) return c.json({ assignment: null, engineSha: engineSha(c.env) });
 
   const { playlist, missing, reason } = await resolvePlaylist(c.env, s);
   if (!playlist) {
     await failStream(c.env, s, missing.length ? 'Faltan vídeos convertidos para la calidad seleccionada.' : (reason ?? 'Playlist no disponible.'));
-    return c.json({ assignment: null });
+    return c.json({ assignment: null, engineSha: engineSha(c.env) });
   }
   const destinations = await destinationUrls(c.env, s.id);
   if (!destinations.length) {
     await failStream(c.env, s, 'El stream no tiene destinos configurados.');
-    return c.json({ assignment: null });
+    return c.json({ assignment: null, engineSha: engineSha(c.env) });
   }
   await run(c.env.DB, 'INSERT INTO stream_sessions (id, stream_id, organization_id, node_id, fencing_token, started_at, last_heartbeat_at) VALUES (?,?,?,?,?,?,?)',
     sessionId, s.id, s.organization_id, b.nodeId, s.fencing_token, now, now);
@@ -244,7 +262,7 @@ internal.post('/streams/claim', async (c) => {
     // Reanudación aproximada: se retoma el ítem que estaba sonando, desde su inicio.
     resume: recovering && pos && pos.playlistVersionId === playlist.versionId ? { cycle: pos.cycle, position: pos.position } : null,
   };
-  return c.json({ assignment });
+  return c.json({ assignment, engineSha: engineSha(c.env) });
 });
 
 internal.post('/streams/:id/heartbeat', async (c) => {
