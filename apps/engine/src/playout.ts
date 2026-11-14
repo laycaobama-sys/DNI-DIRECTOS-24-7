@@ -22,6 +22,8 @@ import { type Relay, openRelay, parseTarget } from './relay';
 
 const MAX_PUSHER_BUFFER = 24 * 1024 * 1024;
 const STALL_MS = 20_000;
+/** Margen hasta el primer avance de salida: conexión, TLS, handshake RTMP y espera del primer fotograma clave. */
+const FIRST_PROGRESS_MS = 45_000;
 const CIRCUIT_FAILURES = 8;
 const CIRCUIT_COOLDOWN_MS = 60_000;
 const TS_PACKET = 188;
@@ -77,6 +79,19 @@ async function resolveTarget(host: string): Promise<{ address: string } | { erro
   }
 }
 
+/**
+ * Lo que un emisor necesita para engancharse limpio a la señal: últimas tablas PAT/PMT y PID del vídeo.
+ * Un FFmpeg que empieza a leer a mitad de un GOP ve cortes H.264 sin SPS/PPS («non-existing PPS») y el binario
+ * estático de Linux se estrella (SIGSEGV) al analizarlos. Por eso cada emisor arranca en un fotograma clave.
+ */
+export interface TsState { pat: Buffer | null; pmt: Buffer | null; pmtPid: number; videoPid: number }
+
+const pidOf = (b: Buffer, o: number) => ((b[o + 1]! & 0x1f) << 8) | b[o + 2]!;
+/** ¿Es el inicio de un fotograma clave de vídeo? (PUSI + random_access_indicator en el PID del vídeo). */
+function isVideoKey(b: Buffer, o: number, videoPid: number): boolean {
+  return pidOf(b, o) === videoPid && !!(b[o + 1]! & 0x40) && !!(b[o + 3]! & 0x20) && b[o + 4]! > 0 && !!(b[o + 5]! & 0x40);
+}
+
 // ───────────────────────── Pusher: un proceso por destino ─────────────────────────
 class Pusher {
   state: DestinationState = 'idle';
@@ -94,11 +109,21 @@ class Pusher {
   private preparing = false;
   private relay: Relay | null = null;
   private killReason: string | null = null;
+  /** Hasta el primer fotograma clave no se envía nada al FFmpeg recién lanzado. */
+  private awaitingKey = true;
+  /** Detalle técnico del último fallo (se adjunta al evento para diagnosticar). */
+  private lastExit: Record<string, unknown> | null = null;
 
-  constructor(readonly id: string, private url: string, private emit: (e: Omit<Ev, 'at'>) => void) {}
+  constructor(readonly id: string, private url: string, private emit: (e: Omit<Ev, 'at'>) => void) {
+    this.prepared = new Promise<void>((r) => { this.markPrepared = r; });
+  }
 
   get bytesSent() { return this.bytesBase + this.bytesRun; }
   sameUrl(url: string) { return this.url === url; }
+
+  /** Se resuelve cuando la primera preparación (DNS + relé) termina, con o sin éxito. */
+  readonly prepared: Promise<void>;
+  private markPrepared!: () => void;
 
   start() {
     if (this.closed || this.proc || this.preparing) return;
@@ -108,6 +133,7 @@ class Pusher {
     this.preparing = true;
     void this.prepare().then((err) => {
       this.preparing = false;
+      this.markPrepared();
       if (this.closed) { this.relay?.close(); this.relay = null; this.state = 'idle'; return; }
       if (err) this.retry(err);
       else this.launch();
@@ -133,8 +159,9 @@ class Pusher {
     if (this.closed || this.proc || !relay) return;
     this.lastProgressAt = Date.now();
     this.killReason = null;
+    this.awaitingKey = true;
     const p = spawn(cfg.ffmpeg, [
-      '-hide_banner', '-loglevel', 'warning', '-progress', 'pipe:1', '-stats_period', '1',
+      '-hide_banner', '-loglevel', 'repeat+warning', '-progress', 'pipe:1', '-stats_period', '1',
       '-fflags', '+genpts', '-analyzeduration', '5000000', '-probesize', '5000000',
       '-f', 'mpegts', '-i', 'pipe:0',
       '-map', '0:v:0', '-map', '0:a:0', '-c', 'copy', '-bsf:a', 'aac_adtstoasc',
@@ -164,13 +191,18 @@ class Pusher {
       }
     });
     p.on('error', (e) => { stderr += e.message; });
-    p.on('close', (code) => {
+    const startedAt = Date.now();
+    p.on('close', (code, signal) => {
       if (this.proc !== p) return;
       this.proc = null;
       this.bytesBase += this.bytesRun; this.bytesRun = 0;
       this.bitrateKbps = null;
       // El error del tramo de red (relé → destino) es el más preciso; después, el motivo del vigilante y FFmpeg.
-      const reason = relay.error() ?? this.killReason ?? (errorLine(stderr) || `FFmpeg terminó con código ${code}`);
+      const reason = relay.error() ?? this.killReason ?? (errorLine(stderr) || (signal ? `FFmpeg se detuvo por la señal ${signal}` : `FFmpeg terminó con código ${code}`));
+      this.lastExit = {
+        code, signal, afterMs: Date.now() - startedAt, relayBytes: relay.bytesOut(), relayError: relay.error(), killReason: this.killReason,
+        tail: redactRtmp(stderr).split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-8),
+      };
       relay.close();
       if (this.relay === relay) this.relay = null;
       if (this.closed) { this.state = 'idle'; return; }
@@ -187,14 +219,23 @@ class Pusher {
       // Backoff exponencial con jitter; circuito abierto tras fallos consecutivos.
       const delay = open ? CIRCUIT_COOLDOWN_MS : Math.min(30_000, 1000 * 2 ** (this.failures - 1)) * (0.5 + Math.random() * 0.5);
       if (open) this.failures = CIRCUIT_FAILURES - 2;
-      this.emit({ type: open ? 'destination_failed' : 'destination_retrying', level: open ? 'error' : 'warn', message: `Destino ${this.id}: ${this.lastError}. Reintento en ${Math.round(delay / 1000)} s.`, data: { destinationId: this.id, failures: this.failures } });
+      this.emit({ type: open ? 'destination_failed' : 'destination_retrying', level: open ? 'error' : 'warn', message: `Destino ${this.id}: ${this.lastError}. Reintento en ${Math.round(delay / 1000)} s.`, data: { destinationId: this.id, failures: this.failures, exit: this.lastExit } });
       this.timer = setTimeout(() => { this.timer = null; this.start(); }, delay);
     }
   }
 
-  write(chunk: Buffer) {
+  write(chunk: Buffer, ts: TsState) {
     const p = this.proc;
     if (!p || p.stdin.destroyed) return;
+    if (this.awaitingKey) {
+      if (!ts.pat || !ts.pmt || ts.videoPid < 0) return;
+      let at = -1;
+      for (let o = 0; o + TS_PACKET <= chunk.length; o += TS_PACKET) if (chunk[o] === 0x47 && isVideoKey(chunk, o, ts.videoPid)) { at = o; break; }
+      if (at < 0) return; // todavía no hay fotograma clave: se descarta (como mucho 2 s, un GOP)
+      this.awaitingKey = false;
+      p.stdin.write(Buffer.concat([ts.pat, ts.pmt, chunk.subarray(at)]));
+      return;
+    }
     if (p.stdin.writableLength > MAX_PUSHER_BUFFER) {
       this.killReason = 'El destino no acepta datos al ritmo de emisión (conexión demasiado lenta).';
       p.kill('SIGKILL');
@@ -205,7 +246,8 @@ class Pusher {
 
   /** Watchdog: sin avance de salida mientras el feeder produce ⇒ reinicio del proceso. */
   check(feederActive: boolean) {
-    if (this.proc && feederActive && Date.now() - this.lastProgressAt > STALL_MS) {
+    const limit = this.state === 'live' ? STALL_MS : FIRST_PROGRESS_MS;
+    if (this.proc && feederActive && Date.now() - this.lastProgressAt > limit) {
       this.killReason = this.relay?.error() ?? 'El destino no confirmó la recepción de la señal en 20 s.';
       this.proc.kill('SIGKILL');
     }
@@ -251,6 +293,7 @@ export class StreamRunner {
   private clock: { wall: number; pcr: number } | null = null;
   private lastPcr = -1;
   private cc = new Map<number, number>();
+  private ts: TsState = { pat: null, pmt: null, pmtPid: -1, videoPid: -1 };
 
   constructor(readonly a: StreamAssignment) {
     this.playlist = a.playlist;
@@ -277,6 +320,7 @@ export class StreamRunner {
     this.hold(this.playlist);
     for (const d of this.a.destinations) this.addPusher(d.id, d.url);
     this.scheduleHeartbeat(0);
+    await Promise.race([Promise.all([...this.pushers.values()].map((x) => x.prepared)), sleep(15_000)]);
     try {
       await this.feedLoop();
     } catch (e) {
@@ -364,7 +408,7 @@ export class StreamRunner {
     const bus = (chunk: Buffer) => {
       this.lastFeedAt = Date.now();
       this.feederBytes += chunk.length;
-      for (const pusher of this.pushers.values()) pusher.write(chunk);
+      for (const pusher of this.pushers.values()) pusher.write(chunk, this.ts);
     };
     let carry: Buffer = Buffer.alloc(0);
     try {
@@ -377,13 +421,23 @@ export class StreamRunner {
           if (buf[off] !== 0x47) continue; // desalineado (no debería ocurrir): pasa sin temporizar
           // Contadores de continuidad únicos para todo el canal: cada feeder reinicia los suyos y, sin esto,
           // el demuxer del destino marcaría como corrupto (y perdería) un fotograma en cada corte entre ítems.
+          const tsPid = pidOf(buf, off);
+          if (buf[off + 1]! & 0x40) {
+            if (tsPid === 0) {
+              // PAT: primer programa → PID de la PMT.
+              const p0 = off + 4 + ((buf[off + 3]! & 0x20) ? 1 + buf[off + 4]! : 0);
+              const sec = p0 + 1 + buf[p0]!;
+              if (sec + 12 <= off + TS_PACKET) { this.ts.pmtPid = ((buf[sec + 10]! & 0x1f) << 8) | buf[sec + 11]!; this.ts.pat = Buffer.from(buf.subarray(off, off + TS_PACKET)); }
+            } else if (tsPid === this.ts.pmtPid) this.ts.pmt = Buffer.from(buf.subarray(off, off + TS_PACKET));
+          }
           if (buf[off + 3]! & 0x10) {
-            const pid = ((buf[off + 1]! & 0x1f) << 8) | buf[off + 2]!;
+            const pid = tsPid;
             const cc = ((this.cc.get(pid) ?? 15) + 1) & 0x0f;
             this.cc.set(pid, cc);
             buf[off + 3] = (buf[off + 3]! & 0xf0) | cc;
           }
           if (!(buf[off + 3]! & 0x20) || buf[off + 4]! === 0 || !(buf[off + 5]! & 0x10)) continue;
+          this.ts.videoPid = tsPid; // el PCR viaja en el PID del vídeo
           const pcr = (buf[off + 6]! * 33554432 + buf[off + 7]! * 131072 + buf[off + 8]! * 512 + buf[off + 9]! * 2 + (buf[off + 10]! >> 7)) / 90000;
           if (off > from) { bus(buf.subarray(from, off)); from = off; }
           const now = Date.now();

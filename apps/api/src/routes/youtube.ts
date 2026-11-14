@@ -109,3 +109,32 @@ youtube.post('/accounts/:id/destination', requireAuth('admin'), async (c) => {
   const row = await first<DestinationRow>(c.env.DB, 'SELECT * FROM destinations WHERE id = ?', id);
   return c.json({ destination: destinationDto(row!), watchUrl: `https://www.youtube.com/watch?v=${broadcast.id}`, studioUrl: `https://studio.youtube.com/video/${broadcast.id}/livestreaming` }, 201);
 });
+
+interface DestYt { id: string; organization_id: string; youtube_account_id: string | null; youtube_stream_id: string | null; youtube_broadcast_id: string | null }
+
+/** Estado real en YouTube (API oficial): si YouTube está recibiendo la señal y si el directo está emitiéndose. */
+export async function youtubeStatus(env: Env, d: DestYt) {
+  if (!d.youtube_account_id || !d.youtube_stream_id) return null;
+  const acc = await first<YtAccount>(env.DB, 'SELECT * FROM youtube_accounts WHERE id = ? AND organization_id = ?', d.youtube_account_id, d.organization_id);
+  if (!acc) return null;
+  const token = await accessToken(env, acc);
+  const s = await yt<{ items?: { status?: { streamStatus?: string; healthStatus?: { status?: string; configurationIssues?: { type?: string; severity?: string; description?: string }[] } } }[] }>(token, 'GET', `liveStreams?part=status&id=${d.youtube_stream_id}`);
+  const b = d.youtube_broadcast_id
+    ? await yt<{ items?: { status?: { lifeCycleStatus?: string; privacyStatus?: string } }[] }>(token, 'GET', `liveBroadcasts?part=status&id=${d.youtube_broadcast_id}`)
+    : { items: [] };
+  const st = s.items?.[0]?.status;
+  return {
+    streamStatus: st?.streamStatus ?? null,
+    health: st?.healthStatus?.status ?? null,
+    issues: (st?.healthStatus?.configurationIssues ?? []).slice(0, 5).map((i) => ({ type: i.type, severity: i.severity, description: i.description })),
+    broadcast: b.items?.[0]?.status?.lifeCycleStatus ?? null,
+    privacy: b.items?.[0]?.status?.privacyStatus ?? null,
+    checkedAt: Date.now(),
+  };
+}
+
+youtube.get('/destinations/:id/status', requireAuth(), async (c) => {
+  const d = await first<DestYt>(c.env.DB, 'SELECT id, organization_id, youtube_account_id, youtube_stream_id, youtube_broadcast_id FROM destinations WHERE id = ? AND organization_id = ? AND deleted_at IS NULL', c.req.param('id'), c.get('auth').orgId);
+  if (!d) throw notFound('Destino');
+  return c.json({ status: await youtubeStatus(c.env, d) });
+});

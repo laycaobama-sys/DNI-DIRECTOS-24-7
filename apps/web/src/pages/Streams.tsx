@@ -150,6 +150,28 @@ export function StreamNew() {
   );
 }
 
+const YT_STREAM: Record<string, string> = { active: 'YouTube recibe la señal', inactive: 'YouTube no recibe señal', ready: 'YouTube esperando señal', error: 'YouTube indica error en la señal', created: 'Directo creado, sin señal' };
+const YT_BROADCAST: Record<string, string> = { live: 'en directo', liveStarting: 'empezando', testing: 'en prueba', testStarting: 'iniciando prueba', ready: 'preparado', created: 'creado', complete: 'finalizado', revoked: 'revocado' };
+
+/** Estado real comprobado en YouTube (API oficial) para destinos creados con «YouTube con un clic». */
+function YoutubeLiveStatus({ destinationId, active }: { destinationId: string; active: boolean }) {
+  const q = useQuery<{ status: { streamStatus: string | null; health: string | null; broadcast: string | null; issues: { description?: string }[] } | null }>({
+    queryKey: ['yt-status', destinationId], queryFn: () => get(`/v1/integrations/youtube/destinations/${destinationId}/status`), refetchInterval: active ? 15_000 : false, retry: false,
+  });
+  const st = q.data?.status;
+  if (q.error) return <p className="mt-1 text-xs text-ink-500">YouTube: {errMsg(q.error)}</p>;
+  if (!st) return null;
+  const good = st.streamStatus === 'active';
+  return (
+    <div className="mt-1.5 text-xs">
+      <p className={good ? 'text-emerald-600 dark:text-emerald-400' : 'text-ink-500'}>
+        {YT_STREAM[st.streamStatus ?? ''] ?? `YouTube: ${st.streamStatus}`}{st.health ? ` · calidad: ${st.health}` : ''}{st.broadcast ? ` · directo ${YT_BROADCAST[st.broadcast] ?? st.broadcast}` : ''}
+      </p>
+      {st.issues.slice(0, 2).map((i, n) => <p key={n} className="text-amber-700 dark:text-amber-300">{i.description}</p>)}
+    </div>
+  );
+}
+
 export function StreamDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -202,6 +224,7 @@ export function StreamDetail() {
                 <p className="text-sm font-medium">{d.name}</p>
                 <p className="truncate font-mono text-xs text-ink-500">{d.url} · clave {d.streamKeyMasked}</p>
                 {d.lastError && d.state !== 'live' && on && <p className="mt-1 break-words text-xs text-amber-700 dark:text-amber-300">{d.lastError}</p>}
+                {d.youtube && <YoutubeLiveStatus destinationId={d.id} active={on} />}
               </div>
               <div className="flex items-center gap-4 text-xs text-ink-500">
                 <span className="font-mono">{d.bitrateKbps ? `${Math.round(d.bitrateKbps).toLocaleString('es-ES')} kb/s` : '— kb/s'}</span>

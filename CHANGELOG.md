@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2 — 2026-11-14
+- **Causa raíz de «no conecta con YouTube» confirmada en Cloudflare**: el FFmpeg estático 6.1.1 (johnvansickle) se
+  estrella con SIGSEGV en la cadena MPEG-TS por tubería → copia a FLV (también con vídeo sintético, sin red). El
+  contenedor instala ahora FFmpeg de Debian (dinámico); el estático queda solo de respaldo.
+- Prueba en Cloudflare de 120 s en tiempo real con corte y reconexión: 59,83 s + 58,90 s recibidos a 30,02 fps,
+  0 saltos > 100 ms, sin cierres por señal (`GET /internal/engine/diag?full=1`).
+- Emisor: entrada limpia en fotograma clave con PAT/PMT (nunca a mitad de GOP), registro de señal de salida, estado
+  del relé y salida real de FFmpeg en cada fallo; `-loglevel repeat+warning` (sin «Last message repeated»).
+- Arranque: el alimentador espera a que los relés de los destinos estén listos; el vigilante da 45 s hasta la
+  primera señal y 20 s después.
+- Monitor de emisión: estado real comprobado en YouTube (liveStreams.status y liveBroadcasts.lifeCycleStatus).
+
 ## 0.4.1 — 2026-11-14
 - **Corregido: las emisiones a YouTube no conectaban desde la nube.** El FFmpeg estático del contenedor no podía resolver
   DNS (glibc estática) y se quedaba colgado sin llegar a YouTube. Ahora FFmpeg publica en un relé local y el motor (Node)

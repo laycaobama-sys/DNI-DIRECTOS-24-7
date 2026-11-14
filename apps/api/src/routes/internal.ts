@@ -8,6 +8,7 @@ import type { MiddlewareHandler } from 'hono';
 import { z } from 'zod';
 import { engineNodes } from '../engine-node';
 import { setSetting } from '../lib/settings';
+import { youtubeStatus } from './youtube';
 import { type HeartbeatResponse, type MediaJob, type StreamAssignment, type StreamConfigRefresh, UPLOAD_PART_SIZE, heartbeatSchema, joinRtmp, mediaResultSchema, redactRtmp } from '@dni/shared';
 import { type AppEnv, type Env, HttpError, addEvent, all, decryptSecret, first, newId, notFound, parseBody, run, timingSafeEqual } from '../lib/core';
 import { type StreamRow, configRevision, resolvePlaylist, streamDestinations } from './streams';
@@ -74,11 +75,18 @@ internal.post('/engine/report', async (c) => {
   return c.json({ ok: true });
 });
 
+/** Estado en YouTube de los destinos de un stream (verificación operativa, sin exponer claves). */
+internal.get('/youtube/stream-status/:streamId', async (c) => {
+  const rows = await all<{ id: string; organization_id: string; youtube_account_id: string | null; youtube_stream_id: string | null; youtube_broadcast_id: string | null }>(c.env.DB,
+    'SELECT d.id, d.organization_id, d.youtube_account_id, d.youtube_stream_id, d.youtube_broadcast_id FROM stream_destinations sd JOIN destinations d ON d.id = sd.destination_id WHERE sd.stream_id = ?', c.req.param('streamId'));
+  return c.json({ items: await Promise.all(rows.map(async (d) => ({ id: d.id, youtube: await youtubeStatus(c.env, d).catch((e) => ({ error: String(e).slice(0, 200) })) }))) });
+});
+
 /** Diagnóstico de red/FFmpeg hacia YouTube desde un nodo encendido (`?node=0`). */
 internal.get('/engine/diag', async (c) => {
   if (!c.env.ENGINE) throw notFound('Motor');
   const n = Math.max(0, Math.min(9, Number(c.req.query('node') ?? 0) || 0));
-  const r = await c.env.ENGINE.getByName(`node-${n}`).fetch(`http://engine/diag?node=cf-node-${n}`);
+  const r = await c.env.ENGINE.getByName(`node-${n}`).fetch(`http://engine/diag?node=cf-node-${n}${c.req.query('full') === '1' ? '&full=1' : ''}`);
   return new Response(r.body, { headers: { 'content-type': 'application/json' } });
 });
 

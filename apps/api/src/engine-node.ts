@@ -19,8 +19,8 @@ const INACTIVITY_MS = 10 * 60_000;
 
 /**
  * Cargador que se ejecuta dentro del contenedor (Node, sin dependencias, como root):
- *  1. Instala y arranca nscd: los binarios estáticos de FFmpeg (glibc estática) NO pueden resolver nombres de
- *     dominio por sí mismos; nscd les da resolución DNS (sin él no se llega a a.rtmps.youtube.com).
+ *  1. Instala el FFmpeg de Debian (enlazado dinámicamente). El binario estático de Linux se estrellaba (SIGSEGV)
+ *     al leer MPEG-TS por tubería y no resolvía DNS; el estático queda solo como respaldo.
  *  2. Descarga motor y FFmpeg verificados por SHA-256 desde la API y ejecuta el motor como uid 1000.
  *  3. Si el motor sale con código 75 (hay versión nueva publicada), vuelve a descargar y lo relanza sin apagar
  *     el contenedor: así cada despliegue actualiza los nodos aunque el contenedor siga encendido.
@@ -34,11 +34,14 @@ const { API_URL, ENGINE_TOKEN } = process.env;
 const dir = '/opt/engine';
 mkdirSync(dir, { recursive: true });
 mkdirSync('/data', { recursive: true });
-try {
-  if (!existsSync('/usr/sbin/nscd')) execSync('apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends nscd >/dev/null', { stdio: 'inherit', timeout: 180000 });
-  execSync('nscd', { stdio: 'inherit' });
-  console.log('bootstrap: nscd activo (DNS para FFmpeg)');
-} catch (e) { console.error('bootstrap: nscd no disponible: ' + e.message); }
+let systemFfmpeg = existsSync('/usr/bin/ffmpeg') && existsSync('/usr/bin/ffprobe');
+for (let i = 0; i < 3 && !systemFfmpeg; i++) {
+  try {
+    execSync('apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg ca-certificates >/dev/null', { stdio: 'inherit', timeout: 600000 });
+    systemFfmpeg = existsSync('/usr/bin/ffmpeg') && existsSync('/usr/bin/ffprobe');
+  } catch (e) { console.error('bootstrap: instalación de ffmpeg falló (intento ' + (i + 1) + '): ' + e.message); }
+}
+console.log('bootstrap: FFmpeg ' + (systemFfmpeg ? 'de Debian (/usr/bin/ffmpeg)' : 'estático de respaldo'));
 async function get(name) {
   for (let i = 0; ; i++) {
     try {
@@ -68,7 +71,7 @@ for (;;) {
   console.log('bootstrap: motor y FFmpeg verificados; arrancando');
   child = spawn(process.execPath, [dir + '/index.mjs'], {
     stdio: 'inherit', uid: 1000, gid: 1000,
-    env: { ...process.env, FFMPEG_PATH: dir + '/ffmpeg', FFPROBE_PATH: dir + '/ffprobe', DATA_DIR: '/data', HOME: '/tmp', ENGINE_SELF_UPDATE: '1' },
+    env: { ...process.env, FFMPEG_PATH: systemFfmpeg ? '/usr/bin/ffmpeg' : dir + '/ffmpeg', FFPROBE_PATH: systemFfmpeg ? '/usr/bin/ffprobe' : dir + '/ffprobe', FFMPEG_STATIC: dir + '/ffmpeg', DATA_DIR: '/data', HOME: '/tmp', ENGINE_SELF_UPDATE: '1' },
   });
   const code = await new Promise((r) => child.on('exit', (c) => r(c)));
   child = null;
@@ -98,7 +101,7 @@ export class EngineNode extends DurableObject<Env> {
     if (new URL(request.url).pathname === '/diag') {
       if (!container.running) return Response.json({ error: 'not_running' });
       try {
-        const r = await container.getTcpPort(PORT).fetch('http://container/diag', { signal: AbortSignal.timeout(80_000) });
+        const r = await container.getTcpPort(PORT).fetch(`http://container/diag${new URL(request.url).searchParams.get('full') === '1' ? '?full=1' : ''}`, { signal: AbortSignal.timeout(240_000) });
         return new Response(r.body, { headers: { 'content-type': 'application/json' } });
       } catch (e) { return Response.json({ error: String(e) }); }
     }

@@ -112,7 +112,7 @@ export const lastLine = (s: string) => redactRtmp(s.trim().split(/\r?\n/).filter
 export function errorLine(stderr: string): string {
   // El decodificador H.264 avisa al engancharse a mitad de GOP («decode_slice_header», «no frame!»…): es ruido
   // inofensivo con -c copy y no debe ocultar el error real (DNS, TLS, clave rechazada…).
-  const NOISE = /decode_slice_header|no frame!|non-existing PPS|error while decoding MB|concealing|mmco|Invalid NAL|missing picture|co located POCs|reference picture missing|number of reference frames/i;
+  const NOISE = /Last message repeated|decode_slice_header|no frame!|non-existing PPS|error while decoding MB|concealing|mmco|Invalid NAL|missing picture|co located POCs|reference picture missing|number of reference frames/i;
   const lines = stderr.trim().split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !NOISE.test(l));
   const hit = [...lines].reverse().find((l) => /error|failed|refused|timed? ?out|unable|invalid|denied|unreachable|broken pipe|reset|could not|cannot/i.test(l));
   return redactRtmp(hit ?? lines.pop() ?? '').replace(/^\[[^\]]+\]\s*/, '').slice(0, 300);
