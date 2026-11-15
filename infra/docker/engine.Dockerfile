@@ -1,6 +1,6 @@
 # Motor de emisión (FFmpeg + agente Node). Misma imagen para Cloudflare Containers, VPS o Kubernetes.
 # NO PROBADO en este repositorio todavía: la máquina de desarrollo no tenía Docker (ver docs/ACCEPTANCE_TESTS.md).
-FROM node:22-bookworm-slim AS build
+FROM node:22-trixie-slim AS build
 WORKDIR /src
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -8,7 +8,7 @@ COPY packages/shared packages/shared
 COPY apps/engine apps/engine
 RUN pnpm install --frozen-lockfile --filter @dni/engine... --ignore-scripts && pnpm --filter @dni/engine build
 
-FROM node:22-bookworm-slim
+FROM node:22-trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /src/apps/engine/dist/index.mjs ./index.mjs

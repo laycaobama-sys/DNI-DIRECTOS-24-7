@@ -116,6 +116,10 @@ export interface Playlist {
 export interface Destination {
   id: string; name: string; platform: string; url: string; secure: boolean; streamKeyMasked: string; keyRotatedAt: number;
   youtube: { connected: boolean; watchUrl: string; studioUrl: string } | null;
+  /** Canal conectado que tiene esta clave (también para claves copiadas a mano). */
+  youtubeLinked?: boolean;
+  /** Directo de YouTube que recibe ahora la señal. */
+  liveUrl?: string | null;
 }
 export interface YoutubeAccount { id: string; channelId: string; title: string; thumbnail: string | null; connectedAt: number }
 export interface AuthConfig { signupsOpen: boolean; google: boolean; announcement: string | null }

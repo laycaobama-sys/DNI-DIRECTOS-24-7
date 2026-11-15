@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { type AppEnv, type Env, HttpError, all, audit, first, newId, notFound, parseBody, run, sha256Hex, timingSafeEqual } from '../lib/core';
 import { wakeEngines } from '../engine-node';
 import { requireAuth } from './auth';
-import { syncYoutubeThumbnail } from './youtube';
+import { syncYoutubeThumbnail } from './ytlive';
 
 const PREVIEW_WINDOW = 6;
 const PREVIEW_HOLD_MS = 45_000;

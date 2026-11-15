@@ -5,12 +5,14 @@ import { EngineNode, wakeEngines } from './engine-node';
 import { admin } from './routes/admin';
 import { auth } from './routes/auth';
 import { youtube } from './routes/youtube';
+import { youtubeMonitor, ytlive } from './routes/ytlive';
+import { billing, tracking } from './routes/billing';
 
 export { EngineNode };
 import { destinations } from './routes/destinations';
 import { internal, reconcile } from './routes/internal';
 import { media } from './routes/media';
-import { overview, runSchedules, schedules } from './routes/misc';
+import { enforceHourQuotas, overview, runSchedules, schedules } from './routes/misc';
 import { playlists } from './routes/playlists';
 import { streams } from './routes/streams';
 import { expireRecordings, preview, publicRoutes, recordings, thumbnails } from './routes/recordings';
@@ -57,12 +59,15 @@ app.route('/v1/playlists', playlists);
 app.route('/v1/destinations', destinations);
 app.route('/v1/streams', streams);
 app.route('/v1/streams', preview);
+app.route('/v1/streams', ytlive);
 app.route('/v1/recordings', recordings);
 app.route('/v1/thumbnails', thumbnails);
 app.route('/v1/public', publicRoutes);
 app.route('/v1/schedules', schedules);
 app.route('/v1/overview', overview);
 app.route('/v1/admin', admin);
+app.route('/v1/billing', billing);
+app.route('/v1/t', tracking);
 app.route('/v1/integrations/youtube', youtube);
 app.route('/internal', internal);
 
@@ -84,11 +89,15 @@ export default {
     ctx.waitUntil((async () => {
       await reconcile(env);
       await runSchedules(env);
+      await enforceHourQuotas(env).catch((e) => console.error(JSON.stringify({ msg: 'enforceHourQuotas', error: String(e) })));
       await wakeEngines(env);
       await expireRecordings(env);
+      await youtubeMonitor(env).catch((e) => console.error(JSON.stringify({ msg: 'youtubeMonitor', error: String(e) })));
       await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(Date.now()).run();
       await env.DB.prepare('DELETE FROM stream_events WHERE created_at < ?').bind(Date.now() - 30 * 86_400_000).run();
       await env.DB.prepare('DELETE FROM rate_limits WHERE window_start < ?').bind(Date.now() - 86_400_000).run();
+      await env.DB.prepare('DELETE FROM login_events WHERE created_at < ?').bind(Date.now() - 180 * 86_400_000).run();
+      await env.DB.prepare('DELETE FROM page_views_daily WHERE day < ?').bind(new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10)).run();
     })());
   },
 } satisfies ExportedHandler<Env>;

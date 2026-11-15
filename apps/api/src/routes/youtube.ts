@@ -11,9 +11,9 @@ import { googleCredentials } from '../lib/settings';
 import { requireAuth, startGoogle } from './auth';
 import { destinationDto, type DestinationRow } from './destinations';
 
-interface YtAccount { id: string; organization_id: string; channel_id: string; channel_title: string; channel_thumbnail: string | null; refresh_token_enc: string; created_at: number }
+export interface YtAccount { id: string; organization_id: string; channel_id: string; channel_title: string; channel_thumbnail: string | null; refresh_token_enc: string; created_at: number }
 
-async function accessToken(env: Env, acc: YtAccount): Promise<string> {
+export async function accessToken(env: Env, acc: YtAccount): Promise<string> {
   const creds = await googleCredentials(env);
   if (!creds) throw new HttpError(503, 'google_not_configured', 'El acceso con Google no está configurado.');
   let refresh: string;
@@ -31,7 +31,7 @@ async function accessToken(env: Env, acc: YtAccount): Promise<string> {
   return j.access_token;
 }
 
-async function yt<T>(token: string, method: string, path: string, body?: unknown): Promise<T> {
+export async function yt<T>(token: string, method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`https://www.googleapis.com/youtube/v3/${path}`, {
     method, headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
   });
@@ -102,9 +102,10 @@ youtube.post('/accounts/:id/destination', requireAuth('admin'), async (c) => {
   const url = (info.rtmpsIngestionAddress ?? info.ingestionAddress).replace(/\/+$/, '');
   const id = newId('dst');
   const now = Date.now();
-  await run(c.env.DB, `INSERT INTO destinations (id, organization_id, name, platform, url, secure, stream_key_enc, stream_key_last4, key_rotated_at, youtube_account_id, youtube_stream_id, youtube_broadcast_id, created_at, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, orgId, b.name ?? `YouTube · ${acc.channel_title}`.slice(0, 120), 'youtube', url, url.startsWith('rtmps') ? 1 : 0,
-    await encryptSecret(c.env, info.streamName, id), info.streamName.slice(-4), now, acc.id, stream.id, broadcast.id, now, now);
+  const template = { title: b.title, description: b.description, privacy: b.privacy, madeForKids: b.madeForKids, dvr: true, latency: 'normal' };
+  await run(c.env.DB, `INSERT INTO destinations (id, organization_id, name, platform, url, secure, stream_key_enc, stream_key_last4, key_rotated_at, youtube_account_id, youtube_stream_id, youtube_broadcast_id, yt_live_video_id, yt_broadcast_template, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, orgId, b.name ?? `YouTube · ${acc.channel_title}`.slice(0, 120), 'youtube', url, url.startsWith('rtmps') ? 1 : 0,
+    await encryptSecret(c.env, info.streamName, id), info.streamName.slice(-4), now, acc.id, stream.id, broadcast.id, broadcast.id, JSON.stringify(template), now, now);
   await audit(c, 'youtube.destination_created', id, { channel: acc.channel_id, broadcast: broadcast.id });
   const row = await first<DestinationRow>(c.env.DB, 'SELECT * FROM destinations WHERE id = ?', id);
   return c.json({ destination: destinationDto(row!), watchUrl: `https://www.youtube.com/watch?v=${broadcast.id}`, studioUrl: `https://studio.youtube.com/video/${broadcast.id}/livestreaming` }, 201);
@@ -139,50 +140,9 @@ youtube.get('/destinations/:id/status', requireAuth(), async (c) => {
   return c.json({ status: await youtubeStatus(c.env, d) });
 });
 
-// ───────────────────────── Miniaturas en YouTube ─────────────────────────
-/** Envía la miniatura de la emisión a cada directo de YouTube vinculado (YouTube Data API: thumbnails.set). */
-export async function syncYoutubeThumbnail(env: Env, orgId: string, streamId: string) {
-  const s = await first<{ thumbnail_key: string | null }>(env.DB, 'SELECT thumbnail_key FROM streams WHERE id = ? AND organization_id = ?', streamId, orgId);
-  if (!s) throw notFound('Stream');
-  if (!s.thumbnail_key) throw new HttpError(422, 'no_thumbnail', 'Primero añade una miniatura a la emisión.');
-  const obj = await env.MEDIA.get(s.thumbnail_key);
-  if (!obj) throw notFound('Miniatura');
-  const type = obj.httpMetadata?.contentType ?? 'image/jpeg';
-  if (type === 'image/webp') throw new HttpError(422, 'thumbnail_format', 'YouTube solo acepta JPG o PNG como miniatura. Guárdala en uno de esos formatos.');
-  const img = await obj.arrayBuffer();
-  const dests = await all<{ id: string; youtube_account_id: string | null; youtube_broadcast_id: string | null; name: string }>(env.DB,
-    `SELECT d.id, d.youtube_account_id, d.youtube_broadcast_id, d.name FROM stream_destinations sd JOIN destinations d ON d.id = sd.destination_id
-     WHERE sd.stream_id = ? AND d.deleted_at IS NULL AND d.youtube_broadcast_id IS NOT NULL`, streamId);
-  if (!dests.length) throw new HttpError(422, 'no_youtube_destination', 'Esta emisión no tiene destinos creados con «YouTube con un clic». Con solo una clave RTMP no se pueden cambiar los datos del directo en YouTube.');
-  const results = [];
-  for (const d of dests) {
-    try {
-      if (!d.youtube_account_id) throw new Error('El canal de YouTube ya no está conectado.');
-      const acc = await first<YtAccount>(env.DB, 'SELECT * FROM youtube_accounts WHERE id = ? AND organization_id = ?', d.youtube_account_id, orgId);
-      if (!acc) throw new Error('El canal de YouTube ya no está conectado.');
-      const token = await accessToken(env, acc);
-      const res = await fetch(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${d.youtube_broadcast_id}&uploadType=media`, {
-        method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': type }, body: img,
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => null)) as { error?: { message?: string; errors?: { reason?: string }[] } } | null;
-        const reason = j?.error?.errors?.[0]?.reason;
-        throw new Error(reason === 'forbidden' || /verif/i.test(j?.error?.message ?? '')
-          ? 'YouTube no permite miniaturas personalizadas en este canal: verifica tu cuenta con el teléfono en youtube.com/verify.'
-          : reason === 'quotaExceeded' ? 'Cuota diaria de la API de YouTube agotada. Inténtalo mañana.' : `YouTube respondió: ${j?.error?.message ?? res.status}`);
-      }
-      await run(env.DB, 'UPDATE destinations SET youtube_thumbnail_synced_at = ?, youtube_thumbnail_error = NULL WHERE id = ?', Date.now(), d.id);
-      results.push({ destinationId: d.id, name: d.name, ok: true });
-    } catch (e) {
-      const msg = e instanceof HttpError || e instanceof Error ? e.message : String(e);
-      await run(env.DB, 'UPDATE destinations SET youtube_thumbnail_error = ? WHERE id = ?', msg.slice(0, 300), d.id);
-      results.push({ destinationId: d.id, name: d.name, ok: false, error: msg });
-    }
-  }
-  return results;
-}
-
+// Miniaturas, directos nuevos en cada inicio y audiencia: ver ytlive.ts.
 youtube.post('/streams/:id/thumbnail', requireAuth('editor'), async (c) => {
+  const { syncYoutubeThumbnail } = await import('./ytlive');
   const results = await syncYoutubeThumbnail(c.env, c.get('auth').orgId, c.req.param('id'));
   await audit(c, 'youtube.thumbnail_synced', c.req.param('id'), { ok: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length });
   return c.json({ results });

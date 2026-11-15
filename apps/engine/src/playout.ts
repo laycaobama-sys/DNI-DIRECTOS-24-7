@@ -8,7 +8,7 @@
  * - Los cambios de playlist se aplican en el límite entre ítems, nunca a mitad de uno.
  * - Auto-fencing: si no se confirma el lease a tiempo, el nodo deja de emitir para no duplicar la señal.
  */
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from 'node:child_process';
 import { readdir, stat, rm, utimes } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { lookup } from 'node:dns/promises';
@@ -28,6 +28,39 @@ const FIRST_PROGRESS_MS = 45_000;
 const CIRCUIT_FAILURES = 8;
 const CIRCUIT_COOLDOWN_MS = 60_000;
 const TS_PACKET = 188;
+/** Duración de un frame AAC a 48 kHz (1024 muestras). */
+const AAC_FRAME_SEC = 1024 / 48000;
+
+/**
+ * Argumentos del alimentador de un ítem canónico. El vídeo de cada ítem empieza justo donde acabó el anterior
+ * (`tsOffset` += duración), sin huecos de imagen. El audio AAC no encaja exactamente: cada ítem trae un frame de cebado
+ * con pts negativo y su último frame se decodifica entero (1024 muestras) aunque el contenedor lo recorte, así que
+ * ambos SE SOLAPARÍAN con el ítem vecino (DTS no monótono en el FLV → audio duplicado y pitidos en YouTube).
+ * Se descartan esos frames con el filtro de paquetes `noise` (sin recodificar): queda como mucho un hueco < 21 ms en
+ * el corte, nunca un solape.
+ */
+export function feederArgs(file: string, tsOffset: number, durationSec: number, trimAudio = true): string[] {
+  const end = (durationSec + 0.0005).toFixed(6);
+  return [
+    '-hide_banner', '-loglevel', 'error', '-nostdin', '-protocol_whitelist', 'file', '-i', file,
+    '-map', '0:v:0', '-map', '0:a:0', '-c', 'copy', '-bsf:v', 'h264_mp4toannexb',
+    // «\\,»: la coma es separador de la lista de filtros; escapada llega a la expresión.
+    ...(trimAudio ? ['-bsf:a', `noise=drop=lt(pts*tb\\,-0.0005)+gt(pts*tb+${AAC_FRAME_SEC.toFixed(6)}\\,${end})`] : []),
+    '-muxdelay', '0', '-muxpreload', '0', '-output_ts_offset', tsOffset.toFixed(6),
+    '-f', 'mpegts', '-mpegts_flags', '+resend_headers', '-flush_packets', '1', 'pipe:1',
+  ];
+}
+
+/** ¿Admite este FFmpeg expresiones en `noise=drop` (FFmpeg ≥ 6)? Se comprueba una vez; si no, se emite como antes. */
+let trimSupport: boolean | undefined;
+export function audioTrimSupported(ffmpeg: string): boolean {
+  if (trimSupport === undefined) {
+    const r = spawnSync(ffmpeg, ['-hide_banner', '-h', 'bsf=noise'], { encoding: 'utf8', windowsHide: true, timeout: 10_000 });
+    trimSupport = /-drop\s+<string>/.test(`${r.stdout ?? ''}${r.stderr ?? ''}`);
+    log.info(`recorte de audio entre ítems: ${trimSupport ? 'activo' : 'no disponible en este FFmpeg (se emite sin recorte)'}`);
+  }
+  return trimSupport;
+}
 
 type Ev = NonNullable<Heartbeat['events']>[number];
 
@@ -371,7 +404,7 @@ export class StreamRunner {
       this.current = { mediaId: item.mediaId };
       this.emit({ type: 'item_started', level: 'info', message: `Reproduciendo «${item.title}».`, data: { mediaId: item.mediaId, index: step.index, cycle: this.cursor.cycle, position: this.cursor.position } });
       const began = Date.now();
-      const res = await this.playItem(file, tsOffset);
+      const res = await this.playItem(file, tsOffset, item.durationSec);
       if (this.stopReason) break;
       if (res.code === 0) {
         tsOffset += item.durationSec;
@@ -394,13 +427,8 @@ export class StreamRunner {
    * marca el ritmo con un reloj único (PCR del MPEG-TS contra el reloj de pared). Así la latencia de
    * arranque de cada FFmpeg no se acumula como retraso en una emisión 24/7.
    */
-  private async playItem(file: string, tsOffset: number): Promise<{ code: number | null; error: string }> {
-    const p = spawn(cfg.ffmpeg, [
-      '-hide_banner', '-loglevel', 'error', '-nostdin', '-protocol_whitelist', 'file', '-i', file,
-      '-map', '0:v:0', '-map', '0:a:0', '-c', 'copy', '-bsf:v', 'h264_mp4toannexb',
-      '-muxdelay', '0', '-muxpreload', '0', '-output_ts_offset', tsOffset.toFixed(6),
-      '-f', 'mpegts', '-mpegts_flags', '+resend_headers', '-flush_packets', '1', 'pipe:1',
-    ], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  private async playItem(file: string, tsOffset: number, durationSec: number): Promise<{ code: number | null; error: string }> {
+    const p = spawn(cfg.ffmpeg, feederArgs(file, tsOffset, durationSec, audioTrimSupported(cfg.ffmpeg)), { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.feeder = p;
     let stderr = '';
     p.stderr.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });

@@ -94,6 +94,7 @@ body {
 .shimmer::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, white 14%, transparent), transparent); animation: shimmer 1.6s infinite; }
 @keyframes float-y { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
 .float-y { animation: float-y 6s ease-in-out infinite; }
+@media (max-width: 1023px) { .float-y { animation: none; } }
 
 /* Aparición al hacer scroll (la activa useReveal con IntersectionObserver) */
 .reveal { opacity: 0; transform: translate3d(0, 24px, 0); transition: opacity 0.9s var(--ease-out-expo), transform 0.9s var(--ease-out-expo); transition-delay: var(--d, 0ms); }
@@ -106,6 +107,59 @@ body {
 /* Página entrante en el panel */
 @keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .page-in { animation: page-in 0.45s var(--ease-out-expo) both; }
+
+
+/* Sin desplazamiento lateral accidental en móvil (decoraciones que sobresalen) */
+html, body { overflow-x: clip; }
+
+/* Tarjeta premium del panel: cristal sutil + borde con brillo al pasar el ratón */
+.glass-card {
+  background: color-mix(in srgb, white 88%, transparent);
+  box-shadow: 0 1px 0 0 color-mix(in srgb, white 70%, transparent) inset, 0 0 0 1px var(--color-ink-200), 0 10px 30px -18px color-mix(in srgb, var(--color-ink-900) 35%, transparent);
+  transition: box-shadow 0.35s var(--ease-out-expo), transform 0.35s var(--ease-out-expo);
+}
+.dark .glass-card {
+  background: linear-gradient(180deg, color-mix(in srgb, white 4%, transparent), color-mix(in srgb, white 1.5%, transparent));
+  box-shadow: 0 1px 0 0 color-mix(in srgb, white 6%, transparent) inset, 0 0 0 1px color-mix(in srgb, white 7%, transparent), 0 18px 40px -24px black;
+}
+@media (hover: hover) {
+  .glass-card:hover { box-shadow: 0 0 0 1px color-mix(in srgb, #ff4f2e 35%, transparent), 0 18px 44px -20px color-mix(in srgb, #ff4f2e 45%, transparent); }
+}
+.glass-card::before {
+  content: ""; position: absolute; inset: -40% -10% auto auto; width: 60%; height: 120%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, #ff4f2e 14%, transparent), transparent);
+  opacity: 0; transition: opacity 0.5s var(--ease-out-expo);
+}
+@media (hover: hover) { .glass-card:hover::before { opacity: 1; } }
+
+/* Entrada escalonada de bloques del panel (solo opacidad y un desplazamiento mínimo: nada «baila») */
+@keyframes rise-in { from { opacity: 0; transform: translate3d(0, 10px, 0); } to { opacity: 1; transform: none; } }
+.stagger > * { animation: rise-in 0.6s var(--ease-out-expo) both; }
+.stagger > *:nth-child(2) { animation-delay: 60ms; } .stagger > *:nth-child(3) { animation-delay: 120ms; }
+.stagger > *:nth-child(4) { animation-delay: 180ms; } .stagger > *:nth-child(5) { animation-delay: 240ms; }
+.stagger > *:nth-child(6) { animation-delay: 300ms; } .stagger > *:nth-child(n+7) { animation-delay: 340ms; }
+
+/* Gráficas: la línea se dibuja, el área aparece y las barras crecen */
+@keyframes draw-line { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.chart-draw-line { stroke-dasharray: 1; animation: draw-line 1.1s var(--ease-out-expo) both; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.chart-draw-area { animation: fade-in 1.2s ease-out 0.2s both; }
+@keyframes bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.bar-grow { transform-origin: left; animation: bar-grow 0.8s var(--ease-out-expo) both; animation-delay: var(--d, 0ms); }
+
+/* Borde animado con el degradado de marca (tarjetas destacadas, plan recomendado) */
+@property --angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+@keyframes spin-angle { to { --angle: 360deg; } }
+.border-spin { position: relative; isolation: isolate; }
+.border-spin::after {
+  content: ""; position: absolute; inset: -1px; z-index: -1; border-radius: inherit; padding: 1px;
+  background: conic-gradient(from var(--angle), #ff4f2e, #ffb020, #a48bff, #ff4f2e);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: spin-angle 6s linear infinite;
+}
+
+/* Cabeceras fijas: respetan la muesca y la barra de estado del móvil (viewport-fit=cover) */
+.safe-top { padding-top: env(safe-area-inset-top); }
 
 /* Barras de desplazamiento discretas */
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--color-ink-500) 45%, transparent) transparent; }

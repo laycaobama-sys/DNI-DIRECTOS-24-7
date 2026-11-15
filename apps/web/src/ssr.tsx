@@ -2,7 +2,10 @@
 import { renderToString } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PUBLIC_PLANS } from '@dni/shared';
 import { FAQ, Landing } from './pages/Landing';
+
+export { PUBLIC_PLANS };
 
 export function render(): string {
   const qc = new QueryClient();
@@ -24,8 +27,15 @@ export function jsonLd(site: string): string {
       '@type': 'SoftwareApplication', '@id': `${site}/#app`, name: 'DNI Directos 24/7', applicationCategory: 'MultimediaApplication',
       applicationSubCategory: 'Live streaming', operatingSystem: 'Web', url: `${site}/`, image: `${site}/og-image.png`, inLanguage: 'es',
       description: 'Plataforma en la nube para emitir vídeos pregrabados en directo 24/7 a YouTube, Twitch, Kick y cualquier RTMP, con playlist en bucle, multidestino y recuperación automática.',
-      offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR', availability: 'https://schema.org/InStock' },
-      featureList: ['Emisión 24/7 desde la nube sin ordenador encendido', 'Playlist en bucle, aleatoria o de una pasada', 'Hasta 10 destinos simultáneos (multistream)', 'Conexión directa con YouTube mediante Google', 'Recuperación automática y reconexión', 'Edición de la playlist en directo sin cortes', 'Programación con zona horaria', 'Subida múltiple en paralelo'],
+      offers: {
+        '@type': 'AggregateOffer', priceCurrency: 'EUR', lowPrice: '0', highPrice: String(Math.max(...PUBLIC_PLANS.map((p) => p.priceMonthly))), offerCount: PUBLIC_PLANS.length,
+        offers: PUBLIC_PLANS.map((p) => ({
+          '@type': 'Offer', name: `Plan ${p.label}`, description: `${p.tagline} ${p.features.join(', ')}.`, price: String(p.priceMonthly), priceCurrency: 'EUR',
+          availability: 'https://schema.org/InStock', url: `${site}/#precios`,
+          ...(p.priceMonthly ? { priceSpecification: { '@type': 'UnitPriceSpecification', price: String(p.priceMonthly), priceCurrency: 'EUR', unitCode: 'MON', referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'MON' } } } : {}),
+        })),
+      },
+      featureList: ['Emisión 24/7 desde la nube sin ordenador encendido', 'Playlist en bucle, aleatoria o de una pasada', 'Hasta 10 destinos simultáneos (multistream)', 'Conexión directa con YouTube mediante Google', 'Directo nuevo en YouTube en cada inicio, o continuar en el mismo', 'Miniatura automática en YouTube', 'Emisión en 4K a 30 fps y 1080p a 60 fps', 'Audiencia en tiempo real con la API oficial de YouTube', 'Grabación automática en la nube', 'Recuperación automática y reconexión', 'Edición de la playlist en directo sin cortes', 'Programación con zona horaria', 'Subida múltiple en paralelo'],
       publisher: { '@id': `${site}/#org` },
     },
     {

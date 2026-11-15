@@ -63,7 +63,7 @@ export function transcodeArgs(input: string, output: string, probe: Probe, profi
   args.push(
     '-map', '0:v:0', '-map', probe.hasAudio ? '0:a:0' : '1:a:0',
     '-vf', `scale=${p.width}:${p.height}:force_original_aspect_ratio=decrease,pad=${p.width}:${p.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${p.fps},format=yuv420p`,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'high', '-level:v', profileId === '1080p30' ? '4.2' : '4.1',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'high', '-level:v', p.level,
     '-b:v', `${p.videoKbps}k`, '-maxrate', `${p.videoKbps}k`, '-bufsize', `${p.videoKbps * 2}k`,
     '-g', String(gop), '-keyint_min', String(gop), '-sc_threshold', '0', '-bf', '0',
     '-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ar', '48000', '-ac', '2',

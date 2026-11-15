@@ -7,8 +7,10 @@ import { type StreamRow, getStream, startStream, stopStream } from './streams';
 const monthStart = () => { const d = new Date(); d.setUTCDate(1); d.setUTCHours(0, 0, 0, 0); return d.getTime(); };
 
 export const overview = new Hono<AppEnv>();
+// Un valor por destino y tramo de 5 min (el máximo), para no contar dos veces las muestras del primer minuto.
+const BUCKETS = 'SELECT (at / 300000) * 300000 AS b, MAX(viewers) AS v FROM stream_metrics WHERE organization_id = ?1 AND at >= ?2 GROUP BY b, stream_id, destination_id';
 
-/** Panel general: solo cifras medidas por el backend. No hay métricas de audiencia sin integración oficial. */
+/** Panel general: cifras medidas por el backend y audiencia oficial de YouTube (si el plan la incluye y el canal está conectado). */
 overview.get('/', requireAuth(), async (c) => {
   const { orgId } = c.get('auth');
   const plan = planOf(c);
@@ -23,13 +25,28 @@ overview.get('/', requireAuth(), async (c) => {
               (SELECT COUNT(*) FROM destinations WHERE organization_id = ?1 AND deleted_at IS NULL) AS destinations,
               (SELECT COUNT(*) FROM streams WHERE organization_id = ?1 AND deleted_at IS NULL AND desired_state = 'running') AS running`, orgId),
   ]);
+  const now = Date.now();
+  let audience: Record<string, unknown> = { available: plan.audience, connected: false };
+  if (plan.audience) {
+    const [linked, nowRow, peak, series, top] = await Promise.all([
+      first<{ n: number }>(c.env.DB, 'SELECT COUNT(*) AS n FROM youtube_accounts WHERE organization_id = ?', orgId),
+      first<{ viewers: number; streams: number }>(c.env.DB, `SELECT COALESCE(SUM(m.viewers),0) AS viewers, COUNT(DISTINCT m.stream_id) AS streams FROM stream_metrics m
+        WHERE m.organization_id = ?1 AND m.at >= ?2 AND m.at = (SELECT MAX(at) FROM stream_metrics x WHERE x.stream_id = m.stream_id AND x.destination_id = m.destination_id)`, orgId, now - 15 * 60_000),
+      first<{ v: number }>(c.env.DB, `SELECT MAX(v) AS v FROM (SELECT SUM(v) AS v FROM (${BUCKETS}) GROUP BY b)`, orgId, now - 7 * 86_400_000),
+      all<{ at: number; viewers: number }>(c.env.DB, `SELECT b AS at, SUM(v) AS viewers FROM (${BUCKETS}) GROUP BY b ORDER BY b`, orgId, now - 86_400_000),
+      all<{ id: string; name: string; viewers: number }>(c.env.DB, `SELECT s.id, s.name, SUM(m.viewers) AS viewers FROM stream_metrics m JOIN streams s ON s.id = m.stream_id
+        WHERE m.organization_id = ?1 AND m.at >= ?2 AND m.at = (SELECT MAX(at) FROM stream_metrics x WHERE x.stream_id = m.stream_id AND x.destination_id = m.destination_id)
+        GROUP BY s.id ORDER BY viewers DESC LIMIT 5`, orgId, now - 15 * 60_000),
+    ]);
+    audience = { available: true, connected: (linked?.n ?? 0) > 0, viewersNow: nowRow?.viewers ?? 0, streamsMeasured: nowRow?.streams ?? 0, peak7d: peak?.v ?? null, series, top };
+  }
   return c.json({
     plan: { id: c.get('auth').plan, ...plan },
     storage: { usedBytes: storage?.used ?? 0, limitBytes: plan.storageBytes, files: storage?.files ?? 0 },
     streams: { byStatus: Object.fromEntries(streamsByStatus.map((r) => [r.status, r.n])), running: counts?.running ?? 0, limit: plan.maxConcurrentStreams },
     usage: { liveHoursThisMonth: (usage?.secs ?? 0) / 3600, limitHours: plan.monthlyStreamHours, egressBytesThisMonth: usage?.bytes ?? 0 },
     counts: { playlists: counts?.playlists ?? 0, destinations: counts?.destinations ?? 0 },
-    audience: { available: false, reason: 'Sin conectar: las analíticas de audiencia requieren la integración oficial de cada plataforma.' },
+    audience,
     recentEvents: events.map((e) => ({ id: e.id, streamId: e.stream_id, streamName: e.name, type: e.type, level: e.level, message: e.message, at: e.created_at })),
   });
 });
@@ -48,6 +65,7 @@ schedules.get('/', requireAuth(), async (c) => {
 schedules.post('/', requireAuth('editor'), async (c) => {
   const { orgId } = c.get('auth');
   const b = await parseBody(c, scheduleCreateSchema);
+  if (!planOf(c).scheduling) throw new HttpError(403, 'plan_scheduling', 'La programación de emisiones está incluida a partir del plan Creador.');
   if (!isValidTimeZone(b.timeZone)) throw new HttpError(422, 'invalid_time_zone', 'Zona horaria IANA no válida (ejemplo: Europe/Madrid).');
   await getStream(c.env, orgId, b.streamId);
   const next = nextOccurrence({ timeZone: b.timeZone, time: b.time, recurrence: b.recurrence }, Date.now());
@@ -65,6 +83,24 @@ schedules.delete('/:id', requireAuth('editor'), async (c) => {
 });
 
 /** Ejecutado por cron cada minuto. Cada ocurrencia se reclama con un UPDATE condicional: varias instancias no duplican inicios. */
+/** Detiene las emisiones de las cuentas que agotan las horas mensuales de su plan (en la práctica, el plan Gratis). */
+export async function enforceHourQuotas(env: Env) {
+  const rows = await all<StreamRow & { plan: string }>(env.DB, `SELECT s.*, o.plan FROM streams s JOIN organizations o ON o.id = s.organization_id
+    WHERE s.desired_state = 'running' AND s.deleted_at IS NULL`);
+  const checked = new Map<string, boolean>();
+  for (const s of rows) {
+    const plan = planFor(s.plan);
+    if (plan.unlimited) continue;
+    let over = checked.get(s.organization_id);
+    if (over === undefined) {
+      const u = await first<{ secs: number }>(env.DB, 'SELECT COALESCE(SUM(live_seconds),0) AS secs FROM stream_sessions WHERE organization_id = ? AND started_at >= ?', s.organization_id, monthStart());
+      over = (u?.secs ?? 0) >= plan.monthlyStreamHours * 3600;
+      checked.set(s.organization_id, over);
+    }
+    if (over) await stopStream(env, s, `límite de ${plan.monthlyStreamHours} h al mes del plan ${plan.label}`);
+  }
+}
+
 export async function runSchedules(env: Env, now = Date.now()) {
   const due = await all<ScheduleRow>(env.DB, 'SELECT * FROM schedules WHERE enabled = 1 AND ((next_start_at IS NOT NULL AND next_start_at <= ?1) OR (next_stop_at IS NOT NULL AND next_stop_at <= ?1)) LIMIT 100', now);
   for (const r of due) {

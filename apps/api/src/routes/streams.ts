@@ -4,6 +4,7 @@ import { type AppEnv, type Env, HttpError, addEvent, all, audit, first, newId, n
 import { wakeEngines } from '../engine-node';
 import { planOf, requireAuth } from './auth';
 import { type DestinationRow, destinationDto } from './destinations';
+import { type YoutubeStartMode, endYoutubeBroadcasts, prepareYoutubeBroadcasts, startBodySchema, stopBodySchema } from './ytlive';
 
 export interface StreamRow {
   id: string; organization_id: string; name: string; playlist_id: string; mode: 'loop' | 'once' | 'shuffle'; profile: ProfileId; seed: number;
@@ -96,7 +97,7 @@ async function dto(env: Env, s: StreamRow) {
 }
 
 /** Inicio real: valida contenido, destinos y cuotas y deja el canal reclamable por un nodo de emisión. */
-export async function startStream(env: Env, s: StreamRow, plan: Plan, actor: string) {
+export async function startStream(env: Env, s: StreamRow, plan: Plan, actor: string, youtubeMode: YoutubeStartMode = 'auto') {
   if (s.desired_state === 'running' && isActive(s.status)) return; // idempotente
   if (s.status === 'suspended') throw new HttpError(403, 'stream_suspended', 'El stream está suspendido por cuota. Revisa tu plan.');
   if (!plan.profiles.includes(s.profile)) throw new HttpError(403, 'plan_profile_not_allowed', `Tu plan no incluye la calidad ${s.profile}.`);
@@ -123,6 +124,12 @@ export async function startStream(env: Env, s: StreamRow, plan: Plan, actor: str
   if ((usage?.secs ?? 0) >= plan.monthlyStreamHours * 3600) {
     throw new HttpError(403, 'quota_hours', `Has consumido las ${plan.monthlyStreamHours} horas de emisión de tu plan este mes.`);
   }
+  const busy = await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM streams WHERE organization_id = ? AND deleted_at IS NULL AND desired_state = 'running' AND id != ?", s.organization_id, s.id);
+  if ((busy?.n ?? 0) >= plan.maxConcurrentStreams) {
+    throw new HttpError(409, 'quota_concurrent_streams', `Tu plan permite ${plan.maxConcurrentStreams} emisión(es) simultánea(s). Detén otra emisión o amplía el plan.`);
+  }
+  // Directo de YouTube vigente ANTES de enviar señal: si el anterior terminó, se crea uno nuevo (nunca bloquea el inicio).
+  await prepareYoutubeBroadcasts(env, s, youtubeMode);
   // Cuota de concurrencia comprobada y reservada en una sola sentencia (sin carrera entre peticiones).
   const now = Date.now();
   const res = await run(env.DB,
@@ -135,12 +142,14 @@ export async function startStream(env: Env, s: StreamRow, plan: Plan, actor: str
   await addEvent(env.DB, { streamId: s.id, orgId: s.organization_id, type: 'start_requested', message: `Inicio solicitado por ${actor}.` });
 }
 
-export async function stopStream(env: Env, s: StreamRow, actor: string) {
+export async function stopStream(env: Env, s: StreamRow, actor: string, opts: { endYoutube?: boolean } = {}) {
   const now = Date.now();
   const engineOnline = !!s.lease_owner && (s.lease_expires_at ?? 0) > now;
   if (s.desired_state === 'stopped' && !isActive(s.status)) return;
   await run(env.DB, 'UPDATE streams SET desired_state = \'stopped\', status = ?, updated_at = ? WHERE id = ?', engineOnline ? 'stopping' : 'stopped', now, s.id);
   await addEvent(env.DB, { streamId: s.id, orgId: s.organization_id, sessionId: s.current_session_id, type: 'stop_requested', message: `Detención solicitada por ${actor}.` });
+  // El directo de YouTube se cierra (queda guardado como vídeo); el siguiente inicio crea uno nuevo.
+  if (opts.endYoutube !== false) await endYoutubeBroadcasts(env, s);
 }
 
 export const streams = new Hono<AppEnv>();
@@ -184,6 +193,8 @@ streams.patch('/:id', requireAuth('editor'), async (c) => {
     throw new HttpError(409, 'stream_running', 'Detén la emisión para cambiar playlist, modo o calidad. Los destinos y el contenido de la playlist sí pueden cambiarse en directo.');
   }
   if (b.profile && !plan.profiles.includes(b.profile)) throw new HttpError(403, 'plan_profile_not_allowed', `Tu plan no incluye la calidad ${b.profile}.`);
+  if (b.recordingMode === 'auto' && !plan.recording) throw new HttpError(403, 'plan_recording', 'La grabación en la nube está incluida a partir del plan Creador.');
+  if (b.recordingRetentionDays && !plan.unlimited) b.recordingRetentionDays = Math.min(b.recordingRetentionDays, Math.max(1, plan.maxRecordingRetentionDays));
   if (b.playlistId && !(await first(c.env.DB, 'SELECT 1 FROM playlists WHERE id = ? AND organization_id = ? AND deleted_at IS NULL', b.playlistId, orgId))) {
     throw new HttpError(422, 'playlist_not_found', 'La playlist no existe en tu organización.');
   }
@@ -201,7 +212,8 @@ streams.patch('/:id', requireAuth('editor'), async (c) => {
 streams.post('/:id/start', requireAuth('operator'), async (c) => {
   const a = c.get('auth');
   const s = await getStream(c.env, a.orgId, c.req.param('id'));
-  await startStream(c.env, s, planOf(c), a.email);
+  const b = startBodySchema.parse(await c.req.json().catch(() => undefined));
+  await startStream(c.env, s, planOf(c), a.email, b.youtube);
   c.executionCtx.waitUntil(wakeEngines(c.env));
   await audit(c, 'stream.start', s.id);
   return c.json(await dto(c.env, await getStream(c.env, a.orgId, s.id)));
@@ -210,7 +222,8 @@ streams.post('/:id/start', requireAuth('operator'), async (c) => {
 streams.post('/:id/stop', requireAuth('operator'), async (c) => {
   const a = c.get('auth');
   const s = await getStream(c.env, a.orgId, c.req.param('id'));
-  await stopStream(c.env, s, a.email);
+  const b = stopBodySchema.parse(await c.req.json().catch(() => undefined));
+  await stopStream(c.env, s, a.email, { endYoutube: b.endYoutube });
   await audit(c, 'stream.stop', s.id);
   return c.json(await dto(c.env, await getStream(c.env, a.orgId, s.id)));
 });

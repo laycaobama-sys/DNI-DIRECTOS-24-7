@@ -14,7 +14,7 @@ import { api, cfg, log, runProcess, sleep } from './core';
 import { processMediaJob } from './media';
 import { processRecordingExport } from './export';
 import { type Relay, openRelay, parseTarget } from './relay';
-import { StreamRunner } from './playout';
+import { StreamRunner, audioTrimSupported } from './playout';
 
 const runners = new Map<string, StreamRunner>();
 let shuttingDown = false;
@@ -78,7 +78,7 @@ async function mediaLoop() {
  * de 3 s con una clave inventada (YouTube la rechaza, pero el error dice hasta dónde llegó la conexión).
  */
 async function diagnose() {
-  const out: Record<string, unknown> = { node: cfg.nodeId, ffmpeg: cfg.ffmpeg };
+  const out: Record<string, unknown> = { node: cfg.nodeId, ffmpeg: cfg.ffmpeg, audioTrim: audioTrimSupported(cfg.ffmpeg) };
   try { out.dnsNode = (await lookup('a.rtmps.youtube.com', { all: true })).map((a) => a.address); } catch (e) { out.dnsNode = String(e); }
   for (const url of ['rtmp://a.rtmp.youtube.com/live2/diagnostico-dni', 'rtmps://a.rtmps.youtube.com/live2/diagnostico-dni']) {
     // Mismo camino que una emisión real: DNS en Node + relé local (+ TLS de Node en rtmps).

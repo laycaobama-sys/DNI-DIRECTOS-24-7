@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { z } from 'zod';
-import { engineNodes } from '../engine-node';
+import { dedicatedCapacity, engineNodes } from '../engine-node';
 import { setSetting } from '../lib/settings';
 import { youtubeStatus } from './youtube';
 import { type HeartbeatResponse, type MediaJob, type ProfileId, type StreamAssignment, type StreamConfigRefresh, UPLOAD_PART_SIZE, heartbeatSchema, joinRtmp, mediaResultSchema, redactRtmp } from '@dni/shared';
@@ -244,14 +244,17 @@ internal.post('/streams/claim', async (c) => {
   const current = engineSha(c.env);
   if (b.engineSha && current && b.engineSha !== current) return c.json({ assignment: null, engineSha: current });
 
+  // Un nodo de Cloudflare cede durante 20 s las emisiones nuevas a los nodos propios con hueco (más baratos):
+  // solo las toma si nadie las ha reclamado en ese tiempo o si una emisión se quedó sin nodo (relevo).
+  const yieldMs = b.nodeId.startsWith('cf-node-') && (await dedicatedCapacity(c.env)).free > 0 ? 20_000 : 0;
   const sessionId = newId('ses');
   const s = await first<StreamRow & { prev_status: string }>(c.env.DB,
     `UPDATE streams SET lease_owner = ?1, lease_expires_at = ?2, fencing_token = fencing_token + 1, current_session_id = ?3,
        status = CASE WHEN status = 'recovering' THEN 'recovering' ELSE 'starting' END, updated_at = ?4
      WHERE id = (SELECT id FROM streams WHERE desired_state = 'running' AND deleted_at IS NULL AND status != 'suspended'
-                 AND (lease_owner IS NULL OR lease_expires_at < ?4) ORDER BY updated_at LIMIT 1)
+                 AND (lease_owner IS NULL OR lease_expires_at < ?4) AND (?5 = 0 OR status = 'recovering' OR updated_at < ?4 - ?5) ORDER BY updated_at LIMIT 1)
        AND (lease_owner IS NULL OR lease_expires_at < ?4)
-     RETURNING *`, b.nodeId, now + ttlMs(c.env), sessionId, now);
+     RETURNING *`, b.nodeId, now + ttlMs(c.env), sessionId, now, yieldMs);
   if (!s) return c.json({ assignment: null, engineSha: engineSha(c.env) });
 
   const { playlist, missing, reason } = await resolvePlaylist(c.env, s);

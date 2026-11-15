@@ -174,6 +174,13 @@ export async function engineNodes(env: Env, action: 'status' | 'ensure' | 'resta
  * Mantiene encendidos tantos nodos como exija el trabajo pendiente. Idempotente; se llama desde el cron (cada
  * minuto) y al iniciar una emisión o completar una subida para no esperar al siguiente minuto.
  */
+/** Nodos propios (no Cloudflare) que han informado en los últimos 30 s y su capacidad libre. */
+export async function dedicatedCapacity(env: Env): Promise<{ alive: number; free: number }> {
+  const r = await first<{ alive: number; free: number }>(env.DB,
+    "SELECT COUNT(*) AS alive, COALESCE(SUM(MAX(capacity - running, 0)), 0) AS free FROM worker_nodes WHERE id NOT LIKE 'cf-node-%' AND last_seen_at >= ?", Date.now() - 30_000);
+  return { alive: r?.alive ?? 0, free: r?.free ?? 0 };
+}
+
 export async function wakeEngines(env: Env): Promise<{ nodes: number }> {
   if (!env.ENGINE || !env.PUBLIC_URL) return { nodes: 0 };
   const w = await first<{ streams: number; media: number }>(env.DB,
@@ -182,6 +189,17 @@ export async function wakeEngines(env: Env): Promise<{ nodes: number }> {
           + (SELECT COUNT(*) FROM media_variants WHERE status IN ('pending','processing'))
           + (SELECT COUNT(*) FROM recordings WHERE export_status IN ('pending','processing') AND export_attempts < 3) AS media`);
   if (!w || (w.streams === 0 && w.media === 0)) return { nodes: 0 };
+  // Camino híbrido: los nodos propios (servidores dedicados con tráfico ilimitado) tienen prioridad.
+  // Cloudflare solo se enciende para lo que ellos no cubren o si dejan de informar.
+  const ext = await dedicatedCapacity(env);
+  if (ext.alive) {
+    const now = Date.now();
+    const onCf = await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM streams WHERE desired_state = 'running' AND deleted_at IS NULL AND lease_owner LIKE 'cf-node-%' AND lease_expires_at >= ?", now);
+    const waiting = await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM streams WHERE desired_state = 'running' AND deleted_at IS NULL AND status != 'suspended' AND (lease_owner IS NULL OR lease_expires_at < ?)", now);
+    w.streams = (onCf?.n ?? 0) + Math.max(0, (waiting?.n ?? 0) - ext.free);
+    w.media = 0; // los nodos propios también convierten vídeos
+    if (w.streams === 0) return { nodes: 0 };
+  }
   const capacity = Math.max(1, Number(env.ENGINE_CAPACITY) || 4);
   const max = await engineMaxNodes(env);
   // Escala por emisiones y también por vídeos pendientes: cada nodo convierte MEDIA_CONCURRENCY a la vez.

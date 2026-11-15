@@ -2,9 +2,11 @@ import { type FormEvent, type ReactNode, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, ArrowLeft, Ban, Cpu, Crown, Film, HardDrive, LayoutDashboard, LogOut, Radio, RefreshCw, RotateCw, ScrollText, Search, Settings2,
-  ShieldAlert, Square, Trash2, UserCheck, Users, Zap,
+  Activity, ArrowLeft, Ban, BarChart3, Check, Cpu, Crown, Euro, Eye, Film, Gem, Globe2, HardDrive, LayoutDashboard, LogIn, LogOut, MapPin, Radio, RefreshCw, RotateCw, ScrollText, Search, Settings2,
+  ShieldAlert, Smartphone, Square, Trash2, UserCheck, UserPlus, Users, X, Zap,
 } from 'lucide-react';
+import { PLANS, PUBLIC_PLANS } from '@dni/shared';
+import { AreaChart, BarList, CountUp, StatTile, countryName, flag } from '../components/Charts';
 import { api, fmtBytes, fmtTime, get } from '../api';
 import { GoogleIcon, Logo, ThemeToggle } from '../brand';
 import { useMe, useTitle } from '../hooks';
@@ -12,7 +14,9 @@ import { Badge, Button, Card, ConfirmButton, EmptyState, ErrorState, Field, Inpu
 
 const TABS = [
   { to: '', label: 'Resumen', icon: LayoutDashboard },
+  { to: 'analytics', label: 'Analítica', icon: BarChart3 },
   { to: 'users', label: 'Usuarios', icon: Users },
+  { to: 'plans', label: 'Planes', icon: Gem },
   { to: 'streams', label: 'Emisiones', icon: Radio },
   { to: 'media', label: 'Vídeos', icon: Film },
   { to: 'nodes', label: 'Servidores', icon: Cpu },
@@ -99,6 +103,137 @@ function OverviewTab() {
   );
 }
 
+const DEVICE: Record<string, string> = { 'móvil': 'Móvil', ordenador: 'Ordenador', tablet: 'Tableta', bot: 'Bot' };
+const PLAN_OPTIONS: [string, string][] = [['founder', 'Fundador (sin límites)'], ...PUBLIC_PLANS.map((p) => [p.id, `${p.label} · ${p.priceMonthly} €`] as [string, string]), ['restricted', 'Restringido']];
+const METHOD: Record<string, string> = { password: 'Contraseña', google: 'Google', registro: 'Registro' };
+
+/** Analítica del propietario: visitas de la web, de dónde entra la gente, altas, planes e ingresos y audiencia. */
+function AnalyticsTab() {
+  const [days, setDays] = useState(30);
+  const q = useQuery<any>({ queryKey: ['admin', 'analytics', days], queryFn: () => get(`/v1/admin/analytics?days=${days}`), refetchInterval: 60_000 });
+  if (q.isLoading) return <div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28" />)}</div><Skeleton className="h-64" /></div>;
+  if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
+  const a = q.data;
+  const signups = a.signups.reduce((x: number, s: any) => x + s.value, 0);
+  const paying = a.plans.filter((p: any) => p.priceMonthly > 0).reduce((x: number, p: any) => x + p.organizations, 0);
+  const dayMs = (d: string) => Date.parse(`${d}T12:00:00Z`);
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink-500">Visitas sin cookies ni IP (solo país, dispositivo y procedencia). Ubicación de accesos según Cloudflare.</p>
+        <div role="tablist" aria-label="Periodo" className="flex rounded-xl bg-ink-100 p-1 text-sm dark:bg-white/[0.05]">
+          {[7, 30, 90, 365].map((d) => (
+            <button key={d} role="tab" aria-selected={days === d} onClick={() => setDays(d)} className={cx('rounded-lg px-3 py-1 font-medium', days === d ? 'bg-white shadow-sm dark:bg-white/10' : 'text-ink-500')}>{d === 365 ? '1 año' : `${d} d`}</button>
+          ))}
+        </div>
+      </div>
+      <div className="stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile label="Visitas a la web" icon={<Eye className="size-4" />} value={<CountUp value={a.visits.total} />} hint={`últimos ${days} días`} />
+        <StatTile label="Altas nuevas" icon={<UserPlus className="size-4" />} value={<CountUp value={signups} />} hint={a.visits.total ? `${((signups / a.visits.total) * 100).toFixed(1)} % de conversión` : '—'} />
+        <StatTile label="Ingresos mensuales (estimados)" icon={<Euro className="size-4" />} value={<><CountUp value={a.mrrEstimate} /> €</>} hint={`${paying} cuenta(s) de pago · precio mensual de lista`} />
+        <StatTile label="Espectadores ahora" tone={a.audience.viewersNow ? 'live' : undefined} icon={<Users className="size-4" />} value={<CountUp value={a.audience.viewersNow} />}
+          hint={`${a.audience.liveStreams} emisión(es) en directo · ${a.audience.streamsMeasured} medidas en YouTube`} />
+      </div>
+      <Card>
+        <h3 className="font-semibold">Visitas por día</h3>
+        <div className="mt-4"><AreaChart label="Visitas por día" points={a.visits.byDay.map((v: any) => ({ at: dayMs(v.day), value: v.views }))} timeFmt={(ms) => new Date(ms).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} /></div>
+      </Card>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card>
+          <h3 className="flex items-center gap-2 font-semibold"><Globe2 className="size-4" />Visitas por país</h3>
+          <div className="mt-3"><BarList rows={a.visits.countries.map((c: any) => ({ key: c.country, label: <>{flag(c.country)} {countryName(c.country)}</>, value: c.views }))} /></div>
+        </Card>
+        <Card>
+          <h3 className="flex items-center gap-2 font-semibold"><LogIn className="size-4" />Usuarios que entran, por país</h3>
+          <div className="mt-3"><BarList rows={a.logins.countries.map((c: any) => ({ key: c.country, label: <>{flag(c.country)} {countryName(c.country)}</>, value: c.users }))} /></div>
+        </Card>
+        <Card>
+          <h3 className="font-semibold">Procedencia</h3>
+          <div className="mt-3"><BarList rows={a.visits.referrers.map((r: any) => ({ key: r.referrer, label: r.referrer === 'directo' ? 'Directo / sin referente' : r.referrer, value: r.views }))} /></div>
+        </Card>
+        <Card>
+          <h3 className="flex items-center gap-2 font-semibold"><Smartphone className="size-4" />Dispositivos</h3>
+          <div className="mt-3"><BarList rows={a.visits.devices.map((d: any) => ({ key: d.device, label: DEVICE[d.device] ?? d.device, value: d.views }))} /></div>
+        </Card>
+        <Card>
+          <h3 className="font-semibold">Páginas más vistas</h3>
+          <div className="mt-3"><BarList rows={a.visits.paths.map((p: any) => ({ key: p.path, label: <span className="font-mono text-xs">{p.path}</span>, value: p.views }))} /></div>
+        </Card>
+        <Card>
+          <h3 className="flex items-center gap-2 font-semibold"><Gem className="size-4" />Cuentas por plan</h3>
+          <div className="mt-3"><BarList rows={a.plans.map((p: any) => ({ key: p.plan, label: p.label, value: p.organizations }))} /></div>
+        </Card>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <h3 className="font-semibold">Últimos accesos</h3>
+          {a.logins.recent.length === 0 ? <p className="mt-3 text-sm text-ink-500">Aún no hay accesos registrados.</p> : (
+            <ul className="mt-3 divide-y divide-ink-100 text-sm dark:divide-white/[0.06]">
+              {a.logins.recent.map((l: any, i: number) => (
+                <li key={i} className="flex items-center justify-between gap-3 py-2">
+                  <div className="min-w-0"><p className="truncate">{l.email}</p><p className="text-xs text-ink-500">{flag(l.country)} {[l.city, l.region, countryName(l.country)].filter(Boolean).join(', ')} · {DEVICE[l.device] ?? l.device ?? '—'} · {METHOD[l.method] ?? l.method}</p></div>
+                  <span className="shrink-0 text-xs text-ink-500">{ago(l.at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <Card>
+          <h3 className="font-semibold">Emisiones con más audiencia (pico)</h3>
+          {a.audience.top.length === 0 ? <p className="mt-3 text-sm text-ink-500">Aparecerán cuando haya directos en YouTube con el canal conectado.</p>
+            : <div className="mt-3"><BarList rows={a.audience.top.map((t: any) => ({ key: t.id, label: <>{t.name} <span className="text-ink-500">· {t.organization}</span></>, value: t.peak }))} /></div>}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/** Solicitudes de cambio de plan: aprobar al confirmar el pago, o rechazar. */
+function PlansTab() {
+  const qc = useQueryClient();
+  const q = useQuery<{ items: any[] }>({ queryKey: ['admin', 'plan-requests'], queryFn: () => get('/v1/admin/plan-requests'), refetchInterval: 30_000 });
+  const act = async (id: string, action: 'approve' | 'reject') => {
+    try { await api('POST', `/v1/admin/plan-requests/${id}/${action}`); toast(action === 'approve' ? 'Plan activado' : 'Solicitud rechazada'); await qc.invalidateQueries({ queryKey: ['admin'] }); }
+    catch (e) { toast(errMsg(e), 'error'); }
+  };
+  const label = (id: string) => PUBLIC_PLANS.find((p) => p.id === id)?.label ?? id;
+  return (
+    <div className="space-y-6">
+      <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {PUBLIC_PLANS.map((p) => (
+          <div key={p.id} className="glass-card rounded-2xl p-5">
+            <p className="font-semibold">{p.label}</p>
+            <p className="mt-1 text-2xl font-semibold">{p.priceMonthly} €<span className="text-sm font-normal text-ink-500"> /mes</span></p>
+            <p className="mt-2 text-xs text-ink-500">{p.maxConcurrentStreams} emisión(es) · {p.maxDestinationsPerStream} destinos · {fmtBytes(p.storageBytes)} · {p.monthlyStreamHours} h/mes</p>
+          </div>
+        ))}
+      </div>
+      <Card>
+        <h3 className="font-semibold">Solicitudes de plan</h3>
+        <p className="mt-1 text-sm text-ink-500">Cuando el cliente paga con tu enlace, actívale el plan aquí. También puedes cambiar el plan de cualquier cuenta en «Usuarios».</p>
+        {q.isLoading ? <Skeleton className="mt-4 h-32" /> : q.error ? <ErrorState error={q.error} /> : q.data!.items.length === 0 ? <p className="mt-4 text-sm text-ink-500">No hay solicitudes todavía.</p> : (
+          <ul className="mt-4 divide-y divide-ink-100 dark:divide-white/[0.06]">
+            {q.data!.items.map((r) => (
+              <li key={r.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 text-sm">
+                  <p className="font-medium">{r.organization} · {label(r.currentPlan)} → <strong>{label(r.plan)}</strong> ({r.billing === 'yearly' ? 'anual' : 'mensual'})</p>
+                  <p className="truncate text-xs text-ink-500">{r.email} · {fmtTime(r.createdAt)} · ref. <span className="font-mono">{r.organizationId}</span></p>
+                </div>
+                {r.status === 'pending' ? (
+                  <div className="flex gap-2">
+                    <Button variant="primary" onClick={() => void act(r.id, 'approve')}><Check className="size-4" />Activar plan</Button>
+                    <Button variant="ghost" onClick={() => void act(r.id, 'reject')}><X className="size-4" />Rechazar</Button>
+                  </div>
+                ) : <Badge tone={r.status === 'approved' ? 'ok' : 'muted'}>{r.status === 'approved' ? 'Activado' : 'Rechazada'}</Badge>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function UsersTab() {
   const qc = useQueryClient();
   const me = useMe();
@@ -120,12 +255,22 @@ function UsersTab() {
                   {u.live ? <Badge tone="live" dot>{u.live} en directo</Badge> : null}
                 </p>
                 <p className="mt-0.5 truncate text-sm text-ink-500">{u.email} · {u.organization}</p>
+                {u.lastPlace && u.lastPlace !== '||' && (() => { const [cc, city, dev] = String(u.lastPlace).split('|'); return (
+                  <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-500"><MapPin className="size-3" />{flag(cc)} {[city, countryName(cc)].filter(Boolean).join(', ')}{dev ? ` · ${DEVICE[dev] ?? dev}` : ''}</p>
+                ); })()}
                 <p className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500">
                   <span>{u.streams} emisiones</span><span>{fmtBytes(u.storageBytes)}</span><span>Acceso: {[u.google && 'Google', u.hasPassword && 'contraseña'].filter(Boolean).join(' + ')}</span><span>Último acceso {ago(u.lastLoginAt)}</span><span>Alta {fmtTime(u.createdAt)}</span>
                 </p>
               </div>
               {u.id !== me.data?.user.id && (
                 <div className="flex flex-wrap gap-2">
+                  {u.organizationId && (
+                    <select aria-label={`Plan de ${u.organization}`} className={cx(inputCls, 'h-10 w-auto pr-8')} value={u.plan ?? ''}
+                      onChange={(e) => act(() => api('PATCH', `/v1/admin/orgs/${u.organizationId}/plan`, { plan: e.target.value }), 'Plan actualizado')}>
+                      {PLAN_OPTIONS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                      {u.plan && !PLAN_OPTIONS.some(([id]) => id === u.plan) && <option value={u.plan}>{PLANS[u.plan]?.label ?? u.plan}</option>}
+                    </select>
+                  )}
                   {u.disabledAt
                     ? <Button onClick={() => act(() => api('PATCH', `/v1/admin/users/${u.id}`, { disabled: false }), 'Usuario reactivado')}><UserCheck className="size-4" />Reactivar</Button>
                     : <ConfirmButton label="Desactivar" icon={<Ban className="size-4" />} title={`Desactivar a ${u.email}`} confirmLabel="Desactivar" message="Se cerrarán sus sesiones y se detendrán sus emisiones en directo. Podrás reactivarlo después."
@@ -368,6 +513,30 @@ function SettingsTab() {
       </Card>
 
       <Card className="xl:col-span-2">
+        <h3 className="flex items-center gap-2 font-semibold"><Euro className="size-4" />Cobro de los planes</h3>
+        <p className="mt-1 text-sm text-ink-500">Pega el enlace de pago de cada plan (Stripe Payment Links, Lemon Squeezy, Paddle…). Al contratar, el cliente va a ese enlace con su <code className="text-xs">client_reference_id</code> y la solicitud te aparece en «Planes» para activarla. Sin enlace, queda como solicitud y contactas tú.</p>
+        <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={(e: FormEvent<HTMLFormElement>) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          const links: Record<string, { monthly: string; yearly: string }> = {};
+          for (const p of PUBLIC_PLANS.filter((x) => x.priceMonthly > 0)) links[p.id] = { monthly: String(f.get(`${p.id}-m`) ?? '').trim(), yearly: String(f.get(`${p.id}-y`) ?? '').trim() };
+          void save('checkout', { checkoutLinks: links }, 'Enlaces de pago guardados');
+        }}>
+          {PUBLIC_PLANS.filter((x) => x.priceMonthly > 0).map((p) => (
+            <fieldset key={p.id} className="rounded-xl bg-ink-50 p-4 dark:bg-white/[0.03]">
+              <legend className="sr-only">{p.label}</legend>
+              <p className="text-sm font-semibold">{p.label} · {p.priceMonthly} €/mes · {p.priceYearly} €/mes anual</p>
+              <div className="mt-3 grid gap-3">
+                <Field label="Enlace mensual">{(id) => <Input id={id} name={`${p.id}-m`} type="url" defaultValue={s.checkoutLinks?.[p.id]?.monthly ?? ''} placeholder="https://buy.stripe.com/…" />}</Field>
+                <Field label="Enlace anual">{(id) => <Input id={id} name={`${p.id}-y`} type="url" defaultValue={s.checkoutLinks?.[p.id]?.yearly ?? ''} placeholder="https://buy.stripe.com/…" />}</Field>
+              </div>
+            </fieldset>
+          ))}
+          <div className="sm:col-span-2"><Button variant="primary" type="submit" loading={saving === 'checkout'}>Guardar enlaces</Button></div>
+        </form>
+      </Card>
+
+      <Card className="xl:col-span-2">
         <h3 className="font-semibold">Aviso para todos los usuarios</h3>
         <p className="mt-1 text-sm text-ink-500">Se muestra arriba en el panel de todos los usuarios (mantenimiento, novedades…). Déjalo vacío para quitarlo.</p>
         <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(e: FormEvent<HTMLFormElement>) => { e.preventDefault(); void save('ann', { announcement: String(new FormData(e.currentTarget).get('a') ?? '') }, 'Aviso actualizado'); }}>
@@ -389,7 +558,7 @@ export default function Admin() {
   }
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-30 border-b border-ink-200/80 bg-white/85 backdrop-blur-xl dark:border-white/[0.06] dark:bg-ink-950/80">
+      <header className="safe-top sticky top-0 z-30 border-b border-ink-200/80 bg-white/85 backdrop-blur-xl dark:border-white/[0.06] dark:bg-ink-950/80">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
           <Link to="/app/overview" className="rounded-xl p-2 text-ink-500 hover:bg-ink-100 dark:hover:bg-white/[0.06]" aria-label="Volver a mi panel"><ArrowLeft className="size-5" /></Link>
           <Logo compact />
@@ -408,7 +577,9 @@ export default function Admin() {
       <main className="page-in mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
         <Routes>
           <Route index element={<OverviewTab />} />
+          <Route path="analytics" element={<AnalyticsTab />} />
           <Route path="users" element={<UsersTab />} />
+          <Route path="plans" element={<PlansTab />} />
           <Route path="streams" element={<StreamsTab />} />
           <Route path="media" element={<MediaTab />} />
           <Route path="nodes" element={<NodesTab />} />

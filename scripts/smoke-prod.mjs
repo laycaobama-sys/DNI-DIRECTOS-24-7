@@ -54,7 +54,11 @@ try {
   check('Registro por correo', reg.status === 201);
   orgId = reg.json?.organization?.id; userId = reg.json?.user?.id;
   const me = await call('GET', '/v1/auth/me');
-  check('Sesión y plan gratuito sin límites', me.status === 200 && me.json?.current?.limits?.unlimited === true);
+  check('Sesión y plan Gratis con límites para las cuentas nuevas', me.status === 200 && reg.json?.organization?.plan === 'gratis' && me.json?.current?.limits?.unlimited === false);
+  // El resto de la prueba (grabación, etc.) necesita un plan completo: la cuenta temporal pasa a Fundador y se borra al final.
+  d1(`UPDATE organizations SET plan = 'founder' WHERE id = '${orgId}'`);
+  const me2 = await call('GET', '/v1/auth/me');
+  check('Cambio de plan aplicado al instante', me2.json?.current?.limits?.unlimited === true);
 
   const file = path.join(dir, 'prueba.mp4');
   await promisify(execFile)(process.env.FFMPEG_PATH ?? require('ffmpeg-static'), ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=1280x720:r=30', '-f', 'lavfi', '-i', 'sine=f=440', '-t', '8', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file]);
@@ -87,7 +91,7 @@ try {
   const st = await call('POST', '/v1/streams', { name: 'Humo', playlistId: pl.json.id, mode: 'loop', profile: '720p30', destinationIds: [dst.json.id] });
   check('Emisión creada y lista para iniciar', st.status === 201 && st.json?.status === 'ready');
   const ov = await call('GET', '/v1/overview');
-  check('Resumen: datos reales y audiencia «no disponible»', ov.status === 200 && ov.json?.audience?.available === false && ov.json?.storage?.files === 1);
+  check('Resumen: datos reales y sin audiencia inventada (YouTube no conectado)', ov.status === 200 && ov.json?.audience?.connected !== true && !ov.json?.audience?.viewersNow && ov.json?.storage?.files === 1);
   if (process.argv.includes('--egress')) {
     // Comprobación de salida RTMPS desde el motor: se emite unos segundos a YouTube con una clave INVENTADA.
     // YouTube no la asocia a ningún canal; solo interesa saber si la conexión TLS/RTMP llega a establecerse.

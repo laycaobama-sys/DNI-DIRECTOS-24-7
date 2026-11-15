@@ -1,15 +1,17 @@
 import { z } from 'zod';
 
 export const ENCODING_PROFILES = {
-  '720p30': { width: 1280, height: 720, fps: 30, videoKbps: 3000, audioKbps: 128, label: '720p · 30 fps' },
-  '1080p30': { width: 1920, height: 1080, fps: 30, videoKbps: 6000, audioKbps: 160, label: '1080p · 30 fps' },
+  '720p30': { width: 1280, height: 720, fps: 30, videoKbps: 3000, audioKbps: 192, level: '4.1', label: '720p · 30 fps' },
+  '1080p30': { width: 1920, height: 1080, fps: 30, videoKbps: 6000, audioKbps: 192, level: '4.2', label: '1080p · 30 fps' },
+  '1080p60': { width: 1920, height: 1080, fps: 60, videoKbps: 9000, audioKbps: 192, level: '4.2', label: '1080p · 60 fps' },
+  '2160p30': { width: 3840, height: 2160, fps: 30, videoKbps: 20000, audioKbps: 192, level: '5.1', label: '4K · 30 fps' },
 } as const;
 export type ProfileId = keyof typeof ENCODING_PROFILES;
 export const PROFILE_IDS = Object.keys(ENCODING_PROFILES) as [ProfileId, ...ProfileId[]];
 
 export interface Plan {
   label: string;
-  /** Sin límites comerciales: la interfaz no muestra topes. Solo quedan salvaguardas técnicas. */
+  /** Sin límites comerciales (cuentas fundadoras y el propietario): la interfaz no muestra topes. */
   unlimited: boolean;
   maxConcurrentStreams: number;
   maxDestinationsPerStream: number;
@@ -17,25 +19,82 @@ export interface Plan {
   maxUploadBytes: number;
   profiles: ProfileId[];
   monthlyStreamHours: number;
+  /** Grabación automática en la nube y su retención máxima. */
+  recording: boolean;
+  maxRecordingRetentionDays: number;
+  /** Métricas de audiencia de YouTube (espectadores, visualizaciones, «me gusta»). */
+  audience: boolean;
+  /** Programación de emisiones. */
+  scheduling: boolean;
+  /** Miembros del equipo con roles. */
+  maxMembers: number;
 }
-const ALL_PROFILES: ProfileId[] = ['720p30', '1080p30'];
+/** Plan comercial que se ofrece al público (catálogo de la página de precios). */
+export interface PublicPlan extends Plan {
+  id: PlanId;
+  priceMonthly: number;
+  /** Precio mensual equivalente pagando un año. */
+  priceYearly: number;
+  tagline: string;
+  highlight?: boolean;
+  features: string[];
+}
+
+const GB = 1024 ** 3;
+const ALL_PROFILES: ProfileId[] = ['720p30', '1080p30', '1080p60', '2160p30'];
 /**
- * Plan por defecto: gratuito y sin límites comerciales. Las cifras son salvaguardas técnicas contra errores
- * (un bucle que cree miles de emisiones), no restricciones de producto. El máximo por archivo lo impone el
- * disco del nodo de emisión, que debe alojar a la vez el original y su conversión.
+ * Cuentas fundadoras (las creadas antes de los planes) y legado: sin límites comerciales. Las cifras son salvaguardas
+ * técnicas contra errores (un bucle que cree miles de emisiones), no restricciones de producto.
  */
-const FREE: Plan = {
-  label: 'Gratuito', unlimited: true, maxConcurrentStreams: 100, maxDestinationsPerStream: 10,
-  storageBytes: 5 * 1024 ** 4, maxUploadBytes: 4 * 1024 ** 3, profiles: ALL_PROFILES, monthlyStreamHours: 1_000_000,
+const FOUNDER: Plan = {
+  label: 'Fundador (sin límites)', unlimited: true, maxConcurrentStreams: 100, maxDestinationsPerStream: 10,
+  storageBytes: 5 * 1024 ** 4, maxUploadBytes: 4 * GB, profiles: ALL_PROFILES, monthlyStreamHours: 1_000_000,
+  recording: true, maxRecordingRetentionDays: 90, audience: true, scheduling: true, maxMembers: 50,
 };
+
+/** Catálogo público (euros). Ver docs/PLANES.md: precios, costes y márgenes del camino híbrido. */
+export const PUBLIC_PLANS: PublicPlan[] = [
+  {
+    id: 'gratis', label: 'Gratis', priceMonthly: 0, priceYearly: 0, tagline: 'Para probar la emisión 24/7 sin tarjeta.',
+    unlimited: false, maxConcurrentStreams: 1, maxDestinationsPerStream: 1, storageBytes: 5 * GB, maxUploadBytes: 2 * GB,
+    profiles: ['720p30'], monthlyStreamHours: 24, recording: false, maxRecordingRetentionDays: 0, audience: false, scheduling: false, maxMembers: 1,
+    features: ['1 emisión a 720p', '1 destino', '24 h de emisión al mes', '5 GB de vídeos', 'Vista previa con sonido', 'Miniaturas'],
+  },
+  {
+    id: 'creador', label: 'Creador', priceMonthly: 19, priceYearly: 15, tagline: 'Un canal en directo 24/7 en Full HD.', highlight: true,
+    unlimited: false, maxConcurrentStreams: 1, maxDestinationsPerStream: 3, storageBytes: 75 * GB, maxUploadBytes: 4 * GB,
+    profiles: ['720p30', '1080p30', '1080p60'], monthlyStreamHours: 744, recording: true, maxRecordingRetentionDays: 3, audience: true, scheduling: true, maxMembers: 2,
+    features: ['1 emisión 24/7 sin cortes', '1080p a 30 o 60 fps', '3 destinos a la vez', '75 GB de vídeos', 'Grabación en la nube (3 días)', 'Miniatura automática en YouTube', 'Audiencia en tiempo real', 'Programación'],
+  },
+  {
+    id: 'pro', label: 'Pro', priceMonthly: 49, priceYearly: 39, tagline: 'Varios canales, 4K y grabación completa.',
+    unlimited: false, maxConcurrentStreams: 3, maxDestinationsPerStream: 5, storageBytes: 250 * GB, maxUploadBytes: 4 * GB,
+    profiles: ALL_PROFILES, monthlyStreamHours: 3 * 744, recording: true, maxRecordingRetentionDays: 7, audience: true, scheduling: true, maxMembers: 5,
+    features: ['3 emisiones 24/7 simultáneas', 'Hasta 4K a 30 fps', '5 destinos por emisión', '250 GB de vídeos', 'Grabación con 7 días y exportación MP4', 'Todo lo del plan Creador'],
+  },
+  {
+    id: 'agencia', label: 'Agencia', priceMonthly: 129, priceYearly: 103, tagline: 'Para redes de canales y clientes.',
+    unlimited: false, maxConcurrentStreams: 10, maxDestinationsPerStream: 10, storageBytes: 1024 * GB, maxUploadBytes: 4 * GB,
+    profiles: ALL_PROFILES, monthlyStreamHours: 10 * 744, recording: true, maxRecordingRetentionDays: 30, audience: true, scheduling: true, maxMembers: 25,
+    features: ['10 emisiones 24/7 simultáneas', 'Hasta 4K a 30 fps', '10 destinos por emisión', '1 TB de vídeos', 'Grabación con 30 días', 'Todo lo del plan Pro', 'Soporte prioritario'],
+  },
+];
+
 export const PLANS: Record<string, Plan> = {
-  trial: FREE,
-  free: FREE,
-  /** Plan acotado: lo usan las pruebas de cuotas y sirve de base si en el futuro se introducen planes de pago. */
-  restricted: { label: 'Limitado', unlimited: false, maxConcurrentStreams: 1, maxDestinationsPerStream: 1, storageBytes: 2 * 1024 ** 3, maxUploadBytes: 1024 ** 3, profiles: ['720p30'], monthlyStreamHours: 24 },
+  trial: FOUNDER,
+  free: FOUNDER,
+  founder: FOUNDER,
+  ...Object.fromEntries(PUBLIC_PLANS.map((p) => [p.id, p])),
+  /** Plan acotado: lo usan las pruebas de cuotas. */
+  restricted: {
+    label: 'Limitado', unlimited: false, maxConcurrentStreams: 1, maxDestinationsPerStream: 1, storageBytes: 2 * GB, maxUploadBytes: GB, profiles: ['720p30'], monthlyStreamHours: 24,
+    recording: true, maxRecordingRetentionDays: 7, audience: true, scheduling: true, maxMembers: 1,
+  },
 };
 export type PlanId = string;
-export const planFor = (id: string | null | undefined): Plan => (id ? PLANS[id] : undefined) ?? FREE;
+/** Plan con el que empiezan las cuentas nuevas. */
+export const DEFAULT_PLAN: PlanId = 'gratis';
+export const planFor = (id: string | null | undefined): Plan => (id ? PLANS[id] : undefined) ?? FOUNDER;
 
 export const UPLOAD_PART_SIZE = 8 * 1024 * 1024;
 

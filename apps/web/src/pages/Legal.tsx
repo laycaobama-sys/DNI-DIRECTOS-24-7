@@ -23,7 +23,7 @@ const DOCS: Record<string, { title: string; updated: string; body: { h: string; 
     title: 'Términos de uso',
     updated: '13 de noviembre de 2026',
     body: [
-      { h: 'El servicio', p: ['DNI Directos 24/7 permite emitir en directo contenido pregrabado desde la nube a plataformas de terceros. Actualmente se ofrece de forma gratuita y puede cambiar o interrumpirse.'] },
+      { h: 'El servicio', p: ['DNI Directos 24/7 permite emitir en directo contenido pregrabado desde la nube a plataformas de terceros. Se ofrece un plan gratuito con límites y planes de pago mensuales o anuales cuyas condiciones y precios se muestran en la página de precios antes de contratar.', 'Los planes de pago se renuevan en el periodo elegido y puedes cancelarlos cuando quieras; la cancelación surte efecto al final del periodo pagado. Los límites de cada plan (emisiones simultáneas, destinos, almacenamiento, horas y calidad) se aplican automáticamente.'] },
       { h: 'Tu contenido y tus derechos', p: ['Solo puedes subir y emitir contenido del que tengas los derechos necesarios. Eres responsable del contenido que emites y de cumplir las normas de cada plataforma de destino.', 'Retiraremos el contenido y suspenderemos las cuentas que infrinjan derechos de terceros, la ley o estos términos.'] },
       { h: 'Uso prohibido', p: ['Contenido ilegal, que infrinja derechos de autor o que vulnere las normas de las plataformas; automatizar visitas, comentarios o métricas falsas; intentar acceder a cuentas o datos ajenos; o usar el servicio para dañar a terceros.'] },
       { h: 'Sin garantías de resultados', p: ['No garantizamos monetización, visualizaciones, horas de reproducción ni crecimiento. Las plataformas pueden no archivar directos largos o limitar contenido repetitivo.', 'El servicio se presta «tal cual»; hacemos lo razonable para mantenerlo disponible, pero no garantizamos que no haya interrupciones.'] },
@@ -46,7 +46,7 @@ export default function Legal() {
   useTitle(d.title);
   return (
     <div className="dark min-h-dvh bg-ink-950 text-ink-100">
-      <header className="border-b border-white/[0.06]"><div className="mx-auto flex h-16 max-w-3xl items-center px-4 sm:px-6"><Link to="/"><Logo /></Link></div></header>
+      <header className="safe-top border-b border-white/[0.06]"><div className="mx-auto flex h-16 max-w-3xl items-center px-4 sm:px-6"><Link to="/"><Logo /></Link></div></header>
       <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{d.title}</h1>
         <p className="mt-2 text-sm text-ink-500">Última actualización: {d.updated}</p>

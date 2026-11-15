@@ -6,17 +6,22 @@ import {
 } from 'lucide-react';
 import { GoogleIcon, Logo, YoutubeIcon as Youtube } from '../brand';
 import { useAuthConfig } from '../hooks';
+import { PUBLIC_PLANS } from '@dni/shared';
 import { buttonCls, cx, useReveal } from '../ui';
 
 export const FAQ: { q: string; a: string }[] = [
   { q: '¿Cómo hago un directo 24/7 en YouTube sin tener el ordenador encendido?', a: 'Sube tus vídeos a DNI Directos, ordénalos en una playlist, conecta tu canal de YouTube con Google y pulsa «Iniciar emisión». El directo se emite desde nuestros servidores en la nube, así que puedes apagar el ordenador o cerrar el navegador y la emisión sigue.' },
-  { q: '¿Es gratis?', a: 'Sí. Ahora mismo todo el servicio es gratuito: sin tarjeta, sin límite de horas de emisión y con todas las funciones disponibles.' },
+  { q: '¿Cuánto cuesta un directo 24/7?', a: 'Hay un plan Gratis para probar (1 emisión en 720p, 24 horas al mes, sin tarjeta). El plan Creador cuesta 19 € al mes (15 € pagando anual) e incluye 1 emisión 24/7 sin límite de horas en 1080p a 60 fps, 3 destinos, grabación y audiencia en tiempo real. Pro (49 €) añade 3 emisiones y 4K; Agencia (129 €) llega a 10 emisiones simultáneas.' },
+  { q: '¿Se puede emitir en 4K?', a: 'Sí, en los planes Pro y Agencia: 3840×2160 a 30 fps con H.264 a 20 Mbps, como pide YouTube para directos 4K. Tus vídeos deben estar grabados en 4K; si subes 1080p, la emisión se hace en la calidad del archivo.' },
+  { q: '¿Cada vez que inicio se crea un directo nuevo en YouTube?', a: 'Sí, si el anterior terminó: al pulsar «Iniciar» se crea un directo nuevo en tu canal con el mismo título y la misma miniatura, y el anterior queda guardado. Si detuviste sin finalizarlo, te preguntamos si quieres continuar en el mismo enlace o crear uno nuevo.' },
+  { q: '¿La miniatura se cambia sola en YouTube?', a: 'Sí. Cuando subes o cambias la miniatura en el panel se envía automáticamente al directo de YouTube, y también a cada directo nuevo. Necesitas tener el canal conectado con Google y verificado por teléfono (requisito de YouTube para miniaturas personalizadas).' },
+  { q: '¿Puedo ver cuántas personas ven mi directo?', a: 'Sí, desde el plan Creador: espectadores en tiempo real, pico, visualizaciones, «me gusta» y horas vistas, con datos oficiales de la API de YouTube medidos cada 5 minutos.' },
   { q: '¿Puedo emitir vídeos pregrabados en bucle?', a: 'Sí. El modo bucle repite tu playlist sin fin (A → B → C → A…). También hay modo aleatorio, que no repite ningún vídeo hasta haber emitido todos, y modo de una sola pasada.' },
   { q: '¿A qué plataformas puedo emitir a la vez?', a: 'A YouTube, Twitch, Kick, Facebook Live, Rumble, LinkedIn Live y cualquier plataforma que acepte RTMP o RTMPS. Puedes enviar la misma señal hasta a 10 destinos simultáneos; si uno falla, los demás siguen en directo.' },
   { q: '¿Tengo que copiar la clave de emisión de YouTube?', a: 'No hace falta. Conecta tu canal con tu cuenta de Google y la plataforma crea la emisión en YouTube por ti mediante la API oficial. Si lo prefieres, también puedes pegar la URL y la clave manualmente.' },
   { q: '¿Qué pasa si se corta la emisión?', a: 'El motor vigila cada destino y reconecta automáticamente con reintentos progresivos. Si un servidor de emisión cae, otro retoma tu canal cerca del punto donde estaba y todo queda registrado en el historial de eventos.' },
   { q: '¿Puedo cambiar la playlist mientras estoy en directo?', a: 'Sí. Publica la nueva versión y entrará justo al terminar el vídeo que está sonando, sin cortar la emisión ni reiniciar los destinos.' },
-  { q: '¿Qué formatos de vídeo admite?', a: 'MP4, MOV, MKV, WebM y M4V de hasta 4 GB por archivo. Cada vídeo se convierte automáticamente a un formato de emisión estable (H.264 + AAC, 720p o 1080p a 30 fps, fotograma clave cada 2 s).' },
+  { q: '¿Qué formatos de vídeo admite?', a: 'MP4, MOV, MKV, WebM y M4V de hasta 4 GB por archivo. Cada vídeo se convierte automáticamente a un formato de emisión estable (H.264 + AAC 48 kHz a 192 kbps, de 720p a 4K, fotograma clave cada 2 s) para que el sonido y la imagen no tengan cortes entre vídeos.' },
   { q: '¿Garantizáis monetización o visualizaciones?', a: 'No. Ninguna herramienta puede prometerlo. YouTube puede no archivar directos de más de 12 horas y considera problemático el contenido repetitivo. Emite solo contenido del que tengas los derechos y cumple las normas de cada plataforma.' },
   { q: '¿Mis claves de emisión están seguras?', a: 'Sí. Se guardan cifradas con AES-256, nunca se muestran completas y no aparecen en ningún registro. Los archivos se almacenan en almacenamiento privado, no accesible públicamente.' },
 ];
@@ -116,8 +121,63 @@ function Bento({ className, icon: Icon, title, text, children }: { className?: s
   );
 }
 
+/** Precios: mismo catálogo que aplica la API (paquete compartido), sin cifras inventadas. */
+function Pricing() {
+  const [yearly, setYearly] = useState(true);
+  return (
+    <section id="precios" className="scroll-mt-20 mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-24">
+      <div className="reveal mx-auto max-w-2xl text-center">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-air-400">Precios</p>
+        <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">Un precio claro por canal 24/7</h2>
+        <p className="mt-4 text-lg text-ink-400">Sin límite de horas en los planes de pago. Cancela cuando quieras.</p>
+        <div role="tablist" aria-label="Facturación" className="mx-auto mt-7 inline-flex rounded-xl border border-white/10 bg-white/[0.04] p-1 text-sm">
+          {([false, true] as const).map((y) => (
+            <button key={String(y)} role="tab" aria-selected={yearly === y} onClick={() => setYearly(y)}
+              className={cx('rounded-lg px-4 py-1.5 font-semibold transition-colors', yearly === y ? 'bg-white text-ink-900' : 'text-ink-300 hover:text-white')}>
+              {y ? <>Anual <span className={yearly ? 'text-emerald-600' : 'text-emerald-400'}>−20 %</span></> : 'Mensual'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {PUBLIC_PLANS.map((p, i) => {
+          const price = yearly ? p.priceYearly : p.priceMonthly;
+          return (
+            <div key={p.id} className={cx('reveal relative flex flex-col rounded-3xl border bg-white/[0.025] p-6 transition-transform duration-500 hover:-translate-y-1', p.highlight ? 'border-spin border-transparent bg-white/[0.05]' : 'border-white/[0.08]')} style={{ ['--d' as string]: `${i * 90}ms` }}>
+              {p.highlight && <span className="absolute -top-3 left-6 rounded-full bg-signal px-3 py-1 text-xs font-bold text-white shadow-lg">Más elegido</span>}
+              <h3 className="text-lg font-semibold text-white">{p.label}</h3>
+              <p className="mt-1 min-h-10 text-sm text-ink-400">{p.tagline}</p>
+              <p className="mt-5 text-4xl font-extrabold tracking-tight text-white">{price} €<span className="text-base font-medium text-ink-400">{price ? ' /mes' : ''}</span></p>
+              <p className="h-5 text-xs text-ink-500">{price ? (yearly ? `${price * 12} € facturados al año` : 'facturación mensual') : 'sin tarjeta'}</p>
+              <ul className="mt-6 flex-1 space-y-2.5 text-sm text-ink-300">
+                {p.features.map((f) => <li key={f} className="flex gap-2.5"><Check className="mt-0.5 size-4 shrink-0 text-emerald-400" />{f}</li>)}
+              </ul>
+              <Link to="/register" className={buttonCls(p.highlight ? 'primary' : 'secondary', 'mt-7 h-11 w-full')}>{p.priceMonthly ? `Empezar con ${p.label}` : 'Crear cuenta gratis'}</Link>
+            </div>
+          );
+        })}
+      </div>
+      <p className="reveal mt-6 text-center text-xs text-ink-500">IVA no incluido. Empiezas en Gratis y cambias de plan desde el panel cuando quieras.</p>
+    </section>
+  );
+}
+
+/** Contador de visitas agregado (sin cookies ni identificadores) para la analítica del propietario. */
+function useVisitBeacon() {
+  useEffect(() => {
+    try {
+      const k = `v:${location.pathname}`;
+      if (sessionStorage.getItem(k)) return;
+      sessionStorage.setItem(k, '1');
+    } catch { /* almacenamiento bloqueado: se cuenta igualmente */ }
+    const ref = document.referrer && !document.referrer.startsWith(location.origin) ? document.referrer : '';
+    void fetch(`/v1/t?p=${encodeURIComponent(location.pathname)}&r=${encodeURIComponent(ref)}`, { keepalive: true, credentials: 'omit' }).catch(() => {});
+  }, []);
+}
+
 export function Landing() {
   useReveal();
+  useVisitBeacon();
   const cfg = useAuthConfig();
   const [menu, setMenu] = useState(false);
   const [useCase, setUseCase] = useState(USE_CASES[0]!.id);
@@ -126,13 +186,14 @@ export function Landing() {
 
   return (
     <div className="dark min-h-dvh overflow-x-clip bg-ink-950 text-ink-100">
-      <header className="glass sticky top-0 z-40 border-b border-white/[0.06]">
+      <header className="glass safe-top sticky top-0 z-40 border-b border-white/[0.06]">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <Link to="/" aria-label="DNI Directos 24/7, inicio"><Logo /></Link>
           <nav aria-label="Principal" className="hidden items-center gap-8 text-sm text-ink-300 md:flex">
             <a href="#como-funciona" className="transition-colors hover:text-white">Cómo funciona</a>
             <a href="#funciones" className="transition-colors hover:text-white">Funciones</a>
             <a href="#casos" className="transition-colors hover:text-white">Casos de uso</a>
+            <a href="#precios" className="transition-colors hover:text-white">Precios</a>
             <a href="#faq" className="transition-colors hover:text-white">Preguntas</a>
           </nav>
           <div className="flex items-center gap-2">
@@ -143,7 +204,7 @@ export function Landing() {
         </div>
         {menu && (
           <nav className="page-in border-t border-white/[0.06] px-4 pb-4 md:hidden" aria-label="Menú móvil">
-            {[['#como-funciona', 'Cómo funciona'], ['#funciones', 'Funciones'], ['#casos', 'Casos de uso'], ['#faq', 'Preguntas']].map(([h, l]) => (
+            {[['#como-funciona', 'Cómo funciona'], ['#funciones', 'Funciones'], ['#casos', 'Casos de uso'], ['#precios', 'Precios'], ['#faq', 'Preguntas']].map(([h, l]) => (
               <a key={h} href={h} onClick={() => setMenu(false)} className="block border-b border-white/[0.05] py-3.5 text-ink-200">{l}</a>
             ))}
             <Link to="/login" className="block py-3.5 text-ink-200">Iniciar sesión</Link>
@@ -159,7 +220,7 @@ export function Landing() {
           <div className="mx-auto grid max-w-7xl items-center gap-14 px-4 pb-20 pt-14 sm:px-6 sm:pt-20 lg:grid-cols-[1.1fr_1fr] lg:pb-28 lg:pt-24">
             <div>
               <p className="hero-in inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-1.5 text-xs font-semibold text-ink-200 backdrop-blur">
-                <Sparkles className="size-3.5 text-amber-glow" />Gratis · Sin tarjeta · Sin límite de horas
+                <Sparkles className="size-3.5 text-amber-glow" />Plan gratis · Hasta 4K · Audiencia en tiempo real
               </p>
               <h1 className="hero-in mt-6 text-[2.6rem] font-extrabold leading-[1.04] tracking-tight sm:text-6xl lg:text-7xl" style={{ ['--d' as string]: '80ms' }}>
                 Directos 24/7 en YouTube<br className="hidden sm:block" /> <span className="text-signal">sin encender el ordenador.</span>
@@ -174,7 +235,7 @@ export function Landing() {
                   : <a href="#como-funciona" className={buttonCls('secondary', 'h-13 px-7 text-base')}>Ver cómo funciona</a>}
               </div>
               <ul className="hero-in mt-9 grid max-w-lg grid-cols-2 gap-x-6 gap-y-2.5 text-sm text-ink-300" style={{ ['--d' as string]: '320ms' }}>
-                {['Emite con el PC apagado', 'Hasta 10 destinos a la vez', 'Reconexión automática', 'Conexión directa con YouTube'].map((p) => (
+                {['Emite con el PC apagado', 'Hasta 10 destinos a la vez', 'Directo nuevo en YouTube en cada inicio', 'Miniatura automática en YouTube'].map((p) => (
                   <li key={p} className="flex items-center gap-2"><Check className="size-4 shrink-0 text-emerald-400" />{p}</li>
                 ))}
               </ul>
@@ -197,7 +258,7 @@ export function Landing() {
 
         {/* ───── Cifras del producto (hechos, no métricas inventadas) ───── */}
         <section className="mx-auto grid max-w-7xl grid-cols-2 gap-px overflow-hidden px-4 py-16 sm:px-6 lg:grid-cols-4">
-          {[['24/7', 'Emisión continua desde la nube'], ['10', 'Destinos simultáneos por emisión'], ['1080p', 'A 30 fps, fotograma clave cada 2 s'], ['0 €', 'Gratis y sin límite de horas']].map(([n, l], i) => (
+          {[['24/7', 'Emisión continua desde la nube'], ['10', 'Destinos simultáneos por emisión'], ['4K', 'Hasta 2160p a 30 fps · 1080p a 60 fps'], ['0 €', 'Plan gratis para probar, sin tarjeta']].map(([n, l], i) => (
             <div key={l} className="reveal px-4 py-6 text-center" style={{ ['--d' as string]: `${i * 90}ms` }}>
               <p className="text-signal text-4xl font-extrabold tracking-tight sm:text-5xl">{n}</p>
               <p className="mt-2 text-sm text-ink-400">{l}</p>
@@ -285,7 +346,7 @@ export function Landing() {
               [Wand2, 'Editas la playlist en directo', 'y el cambio entra en un corte limpio, sin reiniciar.'],
               [RefreshCw, 'Si un servidor cae, otro retoma', 'tu canal y reanuda cerca de donde estaba.'],
               [Lock, 'Tus claves nunca se muestran', 'ni aparecen en registros: cifradas de extremo a extremo en reposo.'],
-              [Sparkles, 'Todo gratis, sin límite de horas', 'ni funciones bloqueadas detrás de un plan.'],
+              [Sparkles, 'Audiencia real de YouTube', 'espectadores, pico y horas vistas, sin cifras inventadas.'],
             ].map(([Icon, a, b], i) => {
               const I = Icon as typeof Zap;
               return (
@@ -297,6 +358,8 @@ export function Landing() {
             })}
           </div>
         </section>
+
+        <Pricing />
 
         {/* ───── FAQ ───── */}
         <section id="faq" className="scroll-mt-20 mx-auto max-w-3xl px-4 py-16 sm:px-6 lg:py-24">
@@ -326,7 +389,7 @@ export function Landing() {
             <div className="aurora opacity-70" aria-hidden><span /><span /><span /></div>
             <div className="relative">
               <h2 className="text-3xl font-bold tracking-tight sm:text-5xl">Enciende tu canal 24/7 hoy</h2>
-              <p className="mx-auto mt-4 max-w-xl text-lg text-ink-300">Crea tu cuenta gratis y deja tu primer directo en marcha en menos de cinco minutos.</p>
+              <p className="mx-auto mt-4 max-w-xl text-lg text-ink-300">Crea tu cuenta gratis, sin tarjeta, y deja tu primer directo en marcha en menos de cinco minutos.</p>
               <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
                 <Link to="/register" className={buttonCls('primary', 'h-13 px-8 text-base')}>Empezar gratis <ArrowRight className="size-4" /></Link>
                 {cfg.data?.google && <a href="/v1/auth/google/start" className="inline-flex h-13 items-center justify-center gap-3 rounded-xl bg-white px-6 text-base font-semibold text-ink-900 transition hover:bg-ink-100"><GoogleIcon />Continuar con Google</a>}
@@ -344,7 +407,7 @@ export function Landing() {
           </div>
           <div>
             <p className="font-semibold text-ink-200">Producto</p>
-            <ul className="mt-3 space-y-2"><li><a href="#funciones" className="hover:text-white">Funciones</a></li><li><a href="#casos" className="hover:text-white">Casos de uso</a></li><li><a href="#faq" className="hover:text-white">Preguntas frecuentes</a></li><li><Link to="/register" className="hover:text-white">Crear cuenta</Link></li></ul>
+            <ul className="mt-3 space-y-2"><li><a href="#funciones" className="hover:text-white">Funciones</a></li><li><a href="#precios" className="hover:text-white">Precios</a></li><li><a href="#casos" className="hover:text-white">Casos de uso</a></li><li><a href="#faq" className="hover:text-white">Preguntas frecuentes</a></li><li><Link to="/register" className="hover:text-white">Crear cuenta</Link></li></ul>
           </div>
           <div>
             <p className="font-semibold text-ink-200">Legal</p>

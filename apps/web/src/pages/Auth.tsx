@@ -18,7 +18,7 @@ const OAUTH_ERRORS: Record<string, string> = {
   account_disabled: 'Tu cuenta está desactivada. Contacta con el administrador.',
 };
 
-const PERKS = ['Emisión 24/7 desde la nube, con el ordenador apagado', 'YouTube, Twitch, Kick, Facebook y cualquier RTMP', 'Recuperación automática si algo falla', 'Gratis y sin límite de horas'];
+const PERKS = ['Emisión 24/7 desde la nube, con el ordenador apagado', 'YouTube, Twitch, Kick, Facebook y cualquier RTMP', 'Recuperación automática si algo falla', 'Plan gratis para empezar, sin tarjeta'];
 
 export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   useTitle(mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta');
@@ -46,7 +46,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
 
   const closed = mode === 'register' && cfg.data && !cfg.data.signupsOpen;
   return (
-    <div className="dark relative grid min-h-dvh bg-ink-950 text-ink-100 lg:grid-cols-2">
+    <div className="dark safe-top relative grid min-h-dvh bg-ink-950 text-ink-100 lg:grid-cols-2">
       {/* Panel de marca (escritorio) */}
       <div className="relative hidden overflow-hidden border-r border-white/[0.06] lg:block">
         <div className="aurora" aria-hidden><span /><span /><span /></div>

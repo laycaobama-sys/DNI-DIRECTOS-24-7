@@ -14,7 +14,7 @@ const dist = path.join(web, 'dist');
 const SITE = (process.env.SITE_URL || 'https://dni-directos.ibraguimova19.workers.dev').replace(/\/+$/, '');
 
 await build({ root: web, logLevel: 'warn', build: { ssr: 'src/ssr.tsx', outDir: 'dist-ssr', emptyOutDir: true, rollupOptions: { output: { format: 'esm', entryFileNames: 'ssr.mjs' } } } });
-const { render, jsonLd } = await import(pathToFileURL(path.join(web, 'dist-ssr', 'ssr.mjs')).href);
+const { render, jsonLd, PUBLIC_PLANS } = await import(pathToFileURL(path.join(web, 'dist-ssr', 'ssr.mjs')).href);
 
 const indexPath = path.join(dist, 'index.html');
 let html = readFileSync(indexPath, 'utf8');
@@ -37,7 +37,7 @@ Sitemap: ${SITE}/sitemap.xml
 
 const llms = `# DNI Directos 24/7
 
-> Plataforma en la nube para emitir vídeos pregrabados en directo 24/7 a YouTube, Twitch, Kick, Facebook Live y cualquier servidor RTMP/RTMPS, sin tener el ordenador encendido. Gratis y sin límite de horas.
+> Plataforma en la nube para emitir vídeos pregrabados en directo 24/7 a YouTube, Twitch, Kick, Facebook Live y cualquier servidor RTMP/RTMPS, sin tener el ordenador encendido. Plan gratis para probar; planes de pago desde 19 €/mes con horas ilimitadas, hasta 4K y audiencia en tiempo real.
 
 ## Qué es
 DNI Directos 24/7 es un servicio web (${SITE}) en español para hacer directos continuos con contenido grabado. El usuario sube sus vídeos, crea una playlist (en bucle infinito, aleatoria o de una sola pasada), elige uno o varios destinos y pulsa «Iniciar emisión». La señal sale de servidores en la nube (Cloudflare), así que el directo sigue aunque el usuario apague el ordenador o cierre el navegador.
@@ -48,13 +48,17 @@ DNI Directos 24/7 es un servicio web (${SITE}) en español para hacer directos c
 - Multistream: hasta 10 destinos simultáneos con conexiones aisladas (si uno falla, los demás siguen).
 - Conexión directa con YouTube mediante la cuenta de Google (API oficial): crea el directo en el canal sin copiar claves.
 - Recuperación automática: reconexión con reintentos progresivos y relevo entre servidores que reanuda la playlist.
-- Subida de varios vídeos a la vez en paralelo (MP4, MOV, MKV, WebM; hasta 4 GB por archivo) con conversión automática a H.264/AAC 720p o 1080p a 30 fps.
+- Subida de varios vídeos a la vez en paralelo (MP4, MOV, MKV, WebM; hasta 4 GB por archivo) con conversión automática a H.264/AAC: 720p, 1080p a 30 o 60 fps y 4K (2160p a 30 fps, 20 Mbps).
+- Cada vez que se inicia tras finalizar, crea un directo nuevo en YouTube (mismo título y miniatura); también se puede continuar en el mismo.
+- La miniatura se envía sola a YouTube al subirla o cambiarla, y a cada directo nuevo.
+- Audiencia en tiempo real con la API oficial de YouTube: espectadores simultáneos, pico, visualizaciones, «me gusta» y horas vistas.
+- Grabación automática en la nube del directo, descargable en MP4.
 - Programación de inicio y fin con zona horaria y cambios de hora.
-- Estado real por destino (bitrate, reconexiones, eventos). No muestra cifras de audiencia inventadas.
+- Estado real por destino (bitrate, reconexiones, eventos).
 - Inicio de sesión con correo o con Google.
 
-## Precio
-Gratis. Sin tarjeta, sin límite de horas de emisión y con todas las funciones disponibles.
+## Precios (EUR al mes, IVA no incluido; anual con un 20 % de descuento)
+${PUBLIC_PLANS.map((p) => `- ${p.label}: ${p.priceMonthly} €/mes${p.priceMonthly ? ` (${p.priceYearly} €/mes pagando anual)` : ''}. ${p.tagline} ${p.features.join('; ')}.`).join('\n')}
 
 ## Para quién
 Canales de música y radio 24/7 (lofi, DJ sets), iglesias, contenido educativo, gaming, podcasts, fitness y negocios que quieren un canal siempre en directo.
@@ -65,6 +69,7 @@ Canales de música y radio 24/7 (lofi, DJ sets), iglesias, contenido educativo, 
 
 ## Enlaces
 - Inicio: ${SITE}/
+- Precios: ${SITE}/#precios
 - Crear cuenta: ${SITE}/register
 - Privacidad: ${SITE}/legal/privacidad
 - Términos: ${SITE}/legal/terminos

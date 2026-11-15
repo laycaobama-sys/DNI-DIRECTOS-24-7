@@ -1,7 +1,7 @@
 import { type ReactNode, Suspense, lazy, useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, Clapperboard, Crown, FolderOpen, LayoutDashboard, ListVideo, LogOut, Menu, Radio, Send, Settings, X } from 'lucide-react';
+import { CalendarClock, Clapperboard, Crown, Gem, FolderOpen, LayoutDashboard, ListVideo, LogOut, Menu, Radio, Send, Settings, X } from 'lucide-react';
 import { ApiError, api, get, type Stream } from './api';
 import { Logo, ThemeToggle } from './brand';
 import { useAuthConfig, useMe } from './hooks';
@@ -21,6 +21,7 @@ const StreamDetail = lazy(() => import('./pages/Streams').then((m) => ({ default
 const Schedule = lazy(() => import('./pages/Schedule'));
 const Recordings = lazy(() => import('./pages/Recordings'));
 const SettingsPage = lazy(() => import('./pages/Settings'));
+const PlanPage = lazy(() => import('./pages/Plan'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Legal = lazy(() => import('./pages/Legal'));
 
@@ -32,6 +33,7 @@ const NAV = [
   { to: '/app/destinations', label: 'Destinos', icon: Send },
   { to: '/app/recordings', label: 'Grabaciones', icon: Clapperboard },
   { to: '/app/schedule', label: 'Programación', icon: CalendarClock },
+  { to: '/app/plan', label: 'Plan', icon: Gem },
   { to: '/app/settings', label: 'Ajustes', icon: Settings },
 ];
 const MOBILE_TABS = NAV.slice(0, 4);
@@ -101,11 +103,13 @@ function AppLayout() {
   return (
     <div className="min-h-dvh pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0 lg:pl-[17rem]">
       <a href="#contenido" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-ink-900">Saltar al contenido</a>
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[17rem] border-r border-ink-200 bg-white lg:block dark:border-white/[0.06] dark:bg-ink-900">{sidebar}</aside>
-      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-ink-200/80 bg-white/80 px-4 backdrop-blur-xl sm:px-6 dark:border-white/[0.06] dark:bg-ink-950/70">
-        <button className="-ml-1 rounded-xl p-2 lg:hidden" aria-label="Abrir menú" aria-expanded={open} onClick={() => setOpen(true)}><Menu className="size-5" /></button>
-        <Link to="/app/overview" className="lg:hidden"><Logo compact /></Link>
-        <div className="ml-auto flex items-center gap-2"><LiveCounter /><ThemeToggle /></div>
+      <aside className="safe-top fixed inset-y-0 left-0 z-30 hidden w-[17rem] border-r border-ink-200 bg-white lg:block dark:border-white/[0.06] dark:bg-ink-900">{sidebar}</aside>
+      <header className="safe-top sticky top-0 z-20 border-b border-ink-200/80 bg-white/80 backdrop-blur-xl dark:border-white/[0.06] dark:bg-ink-950/70">
+        <div className="flex h-14 items-center gap-3 px-4 sm:px-6">
+          <button className="-ml-1 rounded-xl p-2 lg:hidden" aria-label="Abrir menú" aria-expanded={open} onClick={() => setOpen(true)}><Menu className="size-5" /></button>
+          <Link to="/app/overview" className="lg:hidden"><Logo compact /></Link>
+          <div className="ml-auto flex items-center gap-2"><LiveCounter /><ThemeToggle /></div>
+        </div>
       </header>
       {cfg.data?.announcement && (
         <div role="status" className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-900 dark:text-amber-200">{cfg.data.announcement}</div>
@@ -113,7 +117,7 @@ function AppLayout() {
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú">
           <div className="absolute inset-0 bg-ink-950/70 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="page-in absolute inset-y-0 left-0 w-[17rem] max-w-[85vw] overflow-y-auto bg-white pb-[env(safe-area-inset-bottom)] dark:bg-ink-900">{sidebar}</div>
+          <div className="page-in safe-top absolute inset-y-0 left-0 w-[17rem] max-w-[85vw] overflow-y-auto bg-white pb-[env(safe-area-inset-bottom)] dark:bg-ink-900">{sidebar}</div>
         </div>
       )}
       <main id="contenido" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
@@ -163,6 +167,7 @@ export function App() {
         <Route path="schedule" element={<Schedule />} />
         <Route path="recordings" element={<Recordings />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="plan" element={<PlanPage />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

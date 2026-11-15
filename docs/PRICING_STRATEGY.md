@@ -1,6 +1,6 @@
 # Estrategia de precios — DNI Directos 24/7
 
-> Documento interno, solo informativo: hoy el servicio sigue siendo **gratuito y sin límites comerciales** y no hay cobros activos.
+> Documento de análisis. **Los planes y precios aplicados están en `docs/PLANES.md`** (camino B híbrido: Gratis, Creador 19 €, Pro 49 €, Agencia 129 €). Las cuentas anteriores a los planes siguen como Fundador, sin límites.
 > Las tarifas de la competencia se consultaron el 15/11/2026 en sus webs públicas (o en comparativas cuando la web no publica cifras).
 > Pueden cambiar: hay que revisarlas antes de publicar precios propios.
 

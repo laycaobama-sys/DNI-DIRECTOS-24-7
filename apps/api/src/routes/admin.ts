@@ -9,6 +9,8 @@ import { SETTING_KEYS, engineMaxNodes, getSetting, googleCredentials, setGoogleC
 import { engineNodes, wakeEngines } from '../engine-node';
 import { googleRedirectUri, requireSuperadmin } from './auth';
 import { type StreamRow, stopStream } from './streams';
+import { PLANS, PUBLIC_PLANS } from '@dni/shared';
+import { checkoutKey, checkoutLinks } from './billing';
 
 export const admin = new Hono<AppEnv>();
 admin.use('*', requireSuperadmin);
@@ -61,6 +63,9 @@ admin.get('/users', async (c) => {
   const rows = await all(c.env.DB, `SELECT u.id, u.email, u.name, u.is_superadmin AS superadmin, u.disabled_at AS disabledAt, u.last_login_at AS lastLoginAt,
       u.created_at AS createdAt, u.google_sub IS NOT NULL AS google, u.password_hash != '!' AS hasPassword,
       (SELECT o.name FROM organization_members m JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = u.id ORDER BY m.created_at LIMIT 1) AS organization,
+      (SELECT o.id FROM organization_members m JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = u.id ORDER BY m.created_at LIMIT 1) AS organizationId,
+      (SELECT o.plan FROM organization_members m JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = u.id ORDER BY m.created_at LIMIT 1) AS plan,
+      (SELECT COALESCE(l.country, '') || '|' || COALESCE(l.city, '') || '|' || COALESCE(l.device, '') FROM login_events l WHERE l.user_id = u.id ORDER BY l.id DESC LIMIT 1) AS lastPlace,
       (SELECT COUNT(*) FROM streams s JOIN organization_members m ON m.organization_id = s.organization_id WHERE m.user_id = u.id AND s.deleted_at IS NULL) AS streams,
       (SELECT COUNT(*) FROM streams s JOIN organization_members m ON m.organization_id = s.organization_id WHERE m.user_id = u.id AND s.desired_state = 'running' AND s.deleted_at IS NULL) AS live,
       (SELECT COALESCE(SUM(a.size_bytes),0) FROM media_assets a JOIN organization_members m ON m.organization_id = a.organization_id WHERE m.user_id = u.id AND a.deleted_at IS NULL) AS storageBytes
@@ -117,6 +122,73 @@ admin.delete('/users/:id', async (c) => {
   await run(c.env.DB, 'DELETE FROM users WHERE id = ?', id);
   await audit(c, 'admin.user_deleted', id, { email: u.email, organizations: orgs.length });
   return c.json({ ok: true });
+});
+
+// ───────── Planes ─────────
+admin.patch('/orgs/:id/plan', async (c) => {
+  const b = await parseBody(c, z.object({ plan: z.string().max(20) }));
+  if (!PLANS[b.plan] || b.plan === 'restricted') throw new HttpError(422, 'unknown_plan', 'Ese plan no existe.');
+  const now = Date.now();
+  const r = await run(c.env.DB, 'UPDATE organizations SET plan = ?, plan_updated_at = ? WHERE id = ?', b.plan, now, c.req.param('id'));
+  if (!r.meta.changes) throw notFound('Organización');
+  await run(c.env.DB, "UPDATE plan_requests SET status = 'approved', resolved_at = ? WHERE organization_id = ? AND status = 'pending' AND plan = ?", now, c.req.param('id'), b.plan);
+  await audit(c, 'admin.plan_changed', c.req.param('id'), { plan: b.plan });
+  return c.json({ ok: true });
+});
+
+admin.get('/plan-requests', async (c) => {
+  const rows = await all(c.env.DB, `SELECT r.id, r.plan, r.billing, r.status, r.created_at AS createdAt, r.resolved_at AS resolvedAt, r.organization_id AS organizationId,
+      o.name AS organization, o.plan AS currentPlan, u.email
+    FROM plan_requests r JOIN organizations o ON o.id = r.organization_id JOIN users u ON u.id = r.user_id ORDER BY r.status = 'pending' DESC, r.created_at DESC LIMIT 100`);
+  return c.json({ items: rows });
+});
+
+admin.post('/plan-requests/:id/:action', async (c) => {
+  const action = c.req.param('action');
+  if (action !== 'approve' && action !== 'reject') throw notFound('Acción');
+  const r = await first<{ organization_id: string; plan: string }>(c.env.DB, "SELECT organization_id, plan FROM plan_requests WHERE id = ? AND status = 'pending'", c.req.param('id'));
+  if (!r) throw notFound('Solicitud');
+  const now = Date.now();
+  if (action === 'approve') await run(c.env.DB, 'UPDATE organizations SET plan = ?, plan_updated_at = ? WHERE id = ?', r.plan, now, r.organization_id);
+  await run(c.env.DB, 'UPDATE plan_requests SET status = ?, resolved_at = ? WHERE id = ?', action === 'approve' ? 'approved' : 'rejected', now, c.req.param('id'));
+  await audit(c, `admin.plan_request_${action}d`, r.organization_id, { plan: r.plan });
+  return c.json({ ok: true });
+});
+
+// ───────── Analítica del propietario ─────────
+admin.get('/analytics', async (c) => {
+  const days = Math.min(365, Math.max(1, Number(c.req.query('days') ?? 30) || 30));
+  const now = Date.now();
+  const since = now - days * DAY;
+  const sinceDay = new Date(since).toISOString().slice(0, 10);
+  const db = c.env.DB;
+  const [visitsByDay, countries, referrers, devices, paths, loginCountries, logins, signups, plans, audienceNow, topAudience, liveStreams] = await Promise.all([
+    all<{ day: string; views: number }>(db, 'SELECT day, SUM(views) AS views FROM page_views_daily WHERE day >= ? GROUP BY day ORDER BY day', sinceDay),
+    all<{ country: string; views: number }>(db, 'SELECT country, SUM(views) AS views FROM page_views_daily WHERE day >= ? GROUP BY country ORDER BY views DESC LIMIT 25', sinceDay),
+    all<{ referrer: string; views: number }>(db, 'SELECT referrer, SUM(views) AS views FROM page_views_daily WHERE day >= ? GROUP BY referrer ORDER BY views DESC LIMIT 15', sinceDay),
+    all<{ device: string; views: number }>(db, 'SELECT device, SUM(views) AS views FROM page_views_daily WHERE day >= ? GROUP BY device ORDER BY views DESC', sinceDay),
+    all<{ path: string; views: number }>(db, 'SELECT path, SUM(views) AS views FROM page_views_daily WHERE day >= ? GROUP BY path ORDER BY views DESC LIMIT 15', sinceDay),
+    all<{ country: string; logins: number; users: number }>(db, "SELECT COALESCE(country, '??') AS country, COUNT(*) AS logins, COUNT(DISTINCT user_id) AS users FROM login_events WHERE created_at >= ? GROUP BY country ORDER BY users DESC LIMIT 25", since),
+    all(db, 'SELECT l.created_at AS at, l.method, l.country, l.region, l.city, l.device, u.email FROM login_events l JOIN users u ON u.id = l.user_id ORDER BY l.id DESC LIMIT 40'),
+    all<{ d: number; n: number }>(db, 'SELECT (created_at / 86400000) AS d, COUNT(*) AS n FROM users WHERE created_at >= ? GROUP BY d ORDER BY d', since),
+    all<{ plan: string; n: number }>(db, 'SELECT plan, COUNT(*) AS n FROM organizations GROUP BY plan'),
+    first<{ viewers: number; streams: number }>(db, `SELECT COALESCE(SUM(m.viewers),0) AS viewers, COUNT(DISTINCT m.stream_id) AS streams FROM stream_metrics m
+      WHERE m.at >= ?1 AND m.at = (SELECT MAX(at) FROM stream_metrics x WHERE x.stream_id = m.stream_id AND x.destination_id = m.destination_id)`, now - 15 * 60_000),
+    all(db, `SELECT s.id, s.name, o.name AS organization, MAX(t.v) AS peak FROM (SELECT stream_id, at, SUM(viewers) AS v FROM stream_metrics WHERE at >= ? GROUP BY stream_id, at) t
+       JOIN streams s ON s.id = t.stream_id JOIN organizations o ON o.id = s.organization_id GROUP BY s.id ORDER BY peak DESC LIMIT 10`, since),
+    first<{ n: number }>(db, "SELECT COUNT(*) AS n FROM streams WHERE desired_state = 'running' AND deleted_at IS NULL"),
+  ]);
+  const price = new Map(PUBLIC_PLANS.map((p) => [p.id, p.priceMonthly]));
+  const mrr = plans.reduce((a, p) => a + (price.get(p.plan) ?? 0) * p.n, 0);
+  return c.json({
+    days,
+    visits: { total: visitsByDay.reduce((a, v) => a + v.views, 0), byDay: visitsByDay, countries, referrers, devices, paths },
+    logins: { countries: loginCountries, recent: logins },
+    signups: signups.map((s) => ({ day: s.d * DAY, value: s.n })),
+    plans: plans.map((p) => ({ plan: p.plan, label: PLANS[p.plan]?.label ?? p.plan, organizations: p.n, priceMonthly: price.get(p.plan) ?? 0 })),
+    mrrEstimate: mrr,
+    audience: { viewersNow: audienceNow?.viewers ?? 0, streamsMeasured: audienceNow?.streams ?? 0, liveStreams: liveStreams?.n ?? 0, top: topAudience },
+  });
 });
 
 // ───────── Emisiones de toda la plataforma ─────────
@@ -210,6 +282,7 @@ admin.get('/settings', async (c) => {
     engineMaxNodes: await engineMaxNodes(c.env),
     google: { configured: !!g, clientId: g?.clientId ?? '', redirectUri: googleRedirectUri(c), origin: c.env.PUBLIC_URL || new URL(c.req.url).origin },
     publicUrl: c.env.PUBLIC_URL ?? new URL(c.req.url).origin,
+    checkoutLinks: await checkoutLinks(c.env),
   });
 });
 
@@ -221,7 +294,13 @@ admin.put('/settings', async (c) => {
     googleClientId: z.string().trim().max(200).regex(/^$|^[0-9a-z-]+\.apps\.googleusercontent\.com$/i, 'El ID de cliente debe terminar en .apps.googleusercontent.com').optional(),
     googleClientSecret: z.string().trim().max(200).optional(),
     clearGoogle: z.boolean().optional(),
+    checkoutLinks: z.record(z.object({ monthly: z.string().trim().max(500).url().or(z.literal('')).optional(), yearly: z.string().trim().max(500).url().or(z.literal('')).optional() })).optional(),
   }));
+  for (const [plan, l] of Object.entries(b.checkoutLinks ?? {})) {
+    if (!PUBLIC_PLANS.some((p) => p.id === plan)) continue;
+    if (l.monthly !== undefined) await setSetting(c.env, checkoutKey(plan, 'monthly'), l.monthly || null);
+    if (l.yearly !== undefined) await setSetting(c.env, checkoutKey(plan, 'yearly'), l.yearly || null);
+  }
   if (b.signupsOpen !== undefined) await setSetting(c.env, SETTING_KEYS.signupsOpen, String(b.signupsOpen));
   if (b.announcement !== undefined) await setSetting(c.env, SETTING_KEYS.announcement, b.announcement.trim() || null);
   if (b.engineMaxNodes !== undefined) await setSetting(c.env, SETTING_KEYS.engineMaxNodes, String(b.engineMaxNodes));

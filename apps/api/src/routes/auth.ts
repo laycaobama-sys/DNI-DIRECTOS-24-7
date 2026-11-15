@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { z } from 'zod';
-import { hasRole, loginSchema, planFor, registerSchema, type Role } from '@dni/shared';
+import { DEFAULT_PLAN, hasRole, loginSchema, planFor, registerSchema, type Role } from '@dni/shared';
 import { type AppEnv, type Ctx, HttpError, all, audit, clientIp, encryptSecret, first, hashPassword, newId, parseBody, randomToken, rateLimit, run, sha256Hex, verifyPassword } from '../lib/core';
 import { SETTING_KEYS, getSetting, googleCredentials, signupsOpenSetting } from '../lib/settings';
 
@@ -11,10 +11,26 @@ const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
 // Hash señuelo para igualar tiempos cuando el email no existe (evita enumeración por tiempo).
 let dummyHash: Promise<string> | null = null;
 
-async function createSession(c: Ctx, userId: string) {
+/** Geolocalización aproximada de Cloudflare (país/región/ciudad). Nunca se guarda la IP. */
+export function geoOf(c: Ctx) {
+  const cf = (c.req.raw as { cf?: { country?: string; region?: string; city?: string } }).cf;
+  return { country: cf?.country ?? null, region: cf?.region ?? null, city: cf?.city ?? null };
+}
+export function deviceOf(ua: string | undefined): string {
+  const u = ua ?? '';
+  if (/bot|crawl|spider|slurp|preview|headless/i.test(u)) return 'bot';
+  if (/ipad|tablet/i.test(u)) return 'tablet';
+  if (/mobi|android|iphone/i.test(u)) return 'móvil';
+  return 'ordenador';
+}
+
+async function createSession(c: Ctx, userId: string, method: 'password' | 'google' | 'registro' = 'password') {
   const token = randomToken();
   const now = Date.now();
+  const g = geoOf(c);
   await c.env.DB.batch([
+    c.env.DB.prepare('INSERT INTO login_events (user_id, method, country, region, city, device, created_at) VALUES (?,?,?,?,?,?,?)')
+      .bind(userId, method, g.country, g.region, g.city, deviceOf(c.req.header('user-agent')), now),
     c.env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at, user_agent) VALUES (?,?,?,?,?)')
       .bind(await sha256Hex(token), userId, now, now + SESSION_TTL_MS, (c.req.header('user-agent') ?? '').slice(0, 200)),
     c.env.DB.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').bind(now, userId),
@@ -78,10 +94,11 @@ async function createAccount(c: Ctx, a: { email: string; name: string; orgName: 
   await c.env.DB.batch([
     c.env.DB.prepare('INSERT INTO users (id, email, name, password_hash, email_verified_at, google_sub, is_superadmin, created_at) VALUES (?,?,?,?,?,?,?,?)')
       .bind(userId, a.email, a.name, a.passwordHash, a.verified ? now : null, a.googleSub ?? null, superadmin, now),
-    c.env.DB.prepare('INSERT INTO organizations (id, name, plan, created_at) VALUES (?,?,?,?)').bind(orgId, a.orgName, 'free', now),
+    // La primera cuenta (propietario) no tiene límites; las demás empiezan en el plan gratuito.
+    c.env.DB.prepare('INSERT INTO organizations (id, name, plan, plan_updated_at, created_at) VALUES (?,?,?,?,?)').bind(orgId, a.orgName, superadmin ? 'founder' : DEFAULT_PLAN, now, now),
     c.env.DB.prepare('INSERT INTO organization_members (organization_id, user_id, role, created_at) VALUES (?,?,?,?)').bind(orgId, userId, 'owner', now),
   ]);
-  return { userId, orgId };
+  return { userId, orgId, plan: superadmin ? 'founder' : DEFAULT_PLAN };
 }
 
 // ───────────────────────── Google: inicio de sesión y conexión de canales de YouTube ─────────────────────────
@@ -184,7 +201,7 @@ auth.get('/google/callback', async (c) => {
     user = { id: userId, disabled_at: null };
   }
   deleteCookie(c, OAUTH_COOKIE, { path: '/v1/auth/google' });
-  await createSession(c, user.id);
+  await createSession(c, user.id, 'google');
   return c.redirect('/app/overview', 302);
 });
 
@@ -195,9 +212,9 @@ auth.post('/register', async (c) => {
   if (await first(c.env.DB, 'SELECT 1 FROM users WHERE email = ?', b.email)) {
     throw new HttpError(409, 'email_in_use', 'Ya existe una cuenta con ese email. Inicia sesión o entra con Google.');
   }
-  const { userId, orgId } = await createAccount(c, { email: b.email, name: b.name, orgName: b.organizationName, passwordHash: await hashPassword(b.password) });
-  await createSession(c, userId);
-  return c.json({ user: { id: userId, email: b.email, name: b.name }, organization: { id: orgId, name: b.organizationName, plan: 'free', role: 'owner' } }, 201);
+  const { userId, orgId, plan } = await createAccount(c, { email: b.email, name: b.name, orgName: b.organizationName, passwordHash: await hashPassword(b.password) });
+  await createSession(c, userId, 'registro');
+  return c.json({ user: { id: userId, email: b.email, name: b.name }, organization: { id: orgId, name: b.organizationName, plan, role: 'owner' } }, 201);
 });
 
 auth.post('/login', async (c) => {

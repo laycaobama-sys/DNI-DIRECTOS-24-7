@@ -12,5 +12,5 @@ export default tseslint.config(
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
-  { files: ['scripts/**', 'apps/*/scripts/**', '*.config.*'], languageOptions: { globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', Buffer: 'readonly', setTimeout: 'readonly' } } },
+  { files: ['scripts/**', 'apps/*/scripts/**', 'deploy/**', '*.config.*'], languageOptions: { globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', Buffer: 'readonly', setTimeout: 'readonly' } } },
 );

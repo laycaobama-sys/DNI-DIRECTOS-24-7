@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.0 — 2026-11-16
+- **Sonido sin pitidos ni chasquidos**: corregido el solape de audio AAC entre vídeos de la playlist (cada vídeo trae un
+  frame de cebado con pts negativo y su último frame se decodifica entero: ambos pisaban al vídeo vecino → DTS no
+  monótonos, audio duplicado y «fiu, fiu»). El alimentador descarta esos frames sin recodificar (`noise=drop`), con la
+  imagen continua. Prueba de regresión `tests/playout-audio.test.ts` (sin «non-monotonic», sin solapes de audio y
+  vídeo a 30 fps sin saltos en los cortes). Audio a 192 kbps. El contenedor pasa a Debian 13 (FFmpeg 7.1); el motor
+  comprueba al arrancar que su FFmpeg admite el recorte e informa `audioTrim` en el diagnóstico.
+- **Directo nuevo en YouTube en cada inicio**: si el directo anterior terminó, «Iniciar» crea uno nuevo en el canal
+  (mismo título, descripción, privacidad y miniatura) y lo vincula a la misma clave; si sigue abierto, pregunta si
+  continuar en el mismo o crear uno nuevo. «Detener» finaliza también el directo de YouTube (queda guardado) salvo que
+  se desmarque. También funciona con claves pegadas a mano si el canal está conectado (se vinculan por la clave).
+- **Miniatura automática en YouTube** al subirla o cambiarla y en cada directo nuevo, para cualquier destino de YouTube
+  con el canal conectado; reintento cada hora si YouTube la rechaza (p. ej. canal sin verificar).
+- **Audiencia real** (API oficial de YouTube, cada 5 min): espectadores simultáneos, pico, media, horas vistas,
+  visualizaciones y «me gusta» por emisión, y resumen en el panel.
+- **Planes**: Gratis, Creador (19 €), Pro (49 €, 4K) y Agencia (129 €) con límites aplicados en la API, página «Plan»
+  con consumo, solicitud de cambio con enlace de pago configurable y aprobación del propietario. Las cuentas existentes
+  quedan como Fundador (sin límites). Detalle en `docs/PLANES.md`.
+- **4K** (2160p30, 20 Mbit/s, H.264 High 5.1) y **1080p60** (9 Mbit/s).
+- **Camino B (híbrido)**: nodos de emisión en servidores dedicados (`deploy/dedicated-node`) con prioridad sobre
+  Cloudflare Containers, que queda de respaldo.
+- **Panel del propietario**: analítica (visitas sin cookies por país, procedencia y dispositivo; accesos por país y
+  ciudad; altas; cuentas por plan; ingresos estimados; audiencia), plan por cuenta, solicitudes y enlaces de pago.
+- **Móvil**: la cabecera respeta la muesca/barra de estado (`safe-area`), sin desplazamiento lateral, tarjetas de
+  emisión con los botones en su propia fila y sin animaciones flotantes en pantallas pequeñas.
+- Animaciones: contadores, gráficas que se dibujan, entrada escalonada de tarjetas y borde animado del plan destacado
+  (respetan «reducir movimiento»).
+- SEO/IA: precios en la portada, `AggregateOffer` con los 4 planes en JSON-LD, FAQ de 4K/precios/miniaturas, `llms.txt`
+  con planes reales.
+
 ## 0.5.0 — 2026-11-15
 - **Monitor del directo**: imagen y sonido reales de la señal de salida (HLS, sin recodificar), vúmetros L/R con RMS y
   pico, alerta de silencio (> 5 s por debajo de −50 dBFS) y de saturación, resolución, FPS, bitrate y retraso medidos en

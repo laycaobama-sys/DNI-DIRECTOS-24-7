@@ -165,7 +165,9 @@ async function main() {
   const A = new Client('A'), B = new Client('B');
   step('H1 · Registro de dos organizaciones');
   const regA = await A.ok('POST', '/v1/auth/register', { email: `a-${Date.now()}@example.test`, password: 'Clave-segura-123', name: 'Ana', organizationName: 'Org A' });
-  await B.ok('POST', '/v1/auth/register', { email: `b-${Date.now()}@example.test`, password: 'Clave-segura-456', name: 'Blas', organizationName: 'Org B' });
+  const regB = await B.ok('POST', '/v1/auth/register', { email: `b-${Date.now()}@example.test`, password: 'Clave-segura-456', name: 'Blas', organizationName: 'Org B' });
+  check('Las cuentas nuevas empiezan en el plan Gratis', regB.organization.plan === 'gratis' || regB.plan === 'gratis', JSON.stringify(regB.organization));
+  d1(`UPDATE organizations SET plan = 'founder' WHERE id = '${regB.organization.id}'`);
   d1(`UPDATE organizations SET plan = 'restricted' WHERE id = '${regA.organization.id}'`); // las cuotas se prueban con el plan acotado
   const unauth = await new Client('anon').req('GET', '/v1/streams');
   check('API privada exige sesión (401)', unauth.status === 401);
@@ -371,7 +373,7 @@ async function main() {
   check('Stop: estado «stopped», motor liberado y FFmpeg terminado', (await get()).engine.online === false && ffmpegCount() === 0, `ffmpeg vivos: ${ffmpegCount()}`);
   check('El ingest deja de recibir señal', !probeRtmp(urlA).video);
   const ov = await A.ok('GET', '/v1/overview');
-  check('Uso medido por el motor (>0 s) y audiencia «no disponible»', ov.usage.liveHoursThisMonth > 0 && ov.audience.available === false, `${(ov.usage.liveHoursThisMonth * 3600).toFixed(0)} s emitidos, ${(ov.usage.egressBytesThisMonth / 1e6).toFixed(1)} MB enviados`);
+  check('Uso medido por el motor (>0 s) y sin audiencia inventada (canal de YouTube no conectado)', ov.usage.liveHoursThisMonth > 0 && ov.audience.connected !== true && !ov.audience.viewersNow, `${(ov.usage.liveHoursThisMonth * 3600).toFixed(0)} s emitidos, ${(ov.usage.egressBytesThisMonth / 1e6).toFixed(1)} MB enviados`);
   const logs = ['engine-1', 'engine-2', 'api'].map((n) => readFileSync(path.join(dir, 'logs', `${n}.log`), 'utf8')).join('\n');
   const evText = JSON.stringify(await events());
   check('H14 · Ninguna clave de emisión en logs del motor/API ni en eventos', !logs.includes('SECRETO') && !evText.includes('SECRETO'), `${(statSync(path.join(dir, 'logs', 'engine-2.log')).size / 1024).toFixed(0)} KB de logs revisados`);

@@ -59,7 +59,7 @@ registrado se vincula a la cuenta existente.
 
 ### Cómo corre el motor en Cloudflare
 - Clase `EngineNode` (`apps/api/src/engine-node.ts`): un Durable Object por nodo que controla un contenedor
-  `standard-3` con la imagen oficial `node:22-bookworm`. Un cargador descarga motor y FFmpeg desde R2, verifica el hash
+  `standard-3` con la imagen oficial `node:22-trixie` (Debian 13, FFmpeg 7.1: necesario para el recorte de audio AAC entre ítems con `noise=drop`). Un cargador descarga motor y FFmpeg desde R2, verifica el hash
   y ejecuta el motor como usuario sin privilegios (uid 1000).
 - `wakeEngines` (cron cada minuto, y al iniciar una emisión o completar una subida) enciende los nodos necesarios:
   `ceil(emisiones / ENGINE_CAPACITY)`, máximo `ENGINE_MAX_NODES`. Sin trabajo, el contenedor se apaga a los 10 minutos.
@@ -144,3 +144,8 @@ Conectar canales de YouTube usa un ámbito sensible: hasta que Google verifique 
 verificado esta app» (pueden continuar en «Configuración avanzada») y hay un tope de 100 usuarios. La verificación requiere
 un dominio propio verificado en Search Console (no se puede verificar un subdominio de workers.dev), vídeo de demostración y
 revisión de Google (semanas).
+
+## Copia previa a la migración 0005 (2026-11-16)
+Bookmark de D1 antes de aplicar `0005_audience_analytics_plans.sql` (aditiva):
+`00000008-0000f616-00005124-5c8a9e15a86fe1801f594a254ebfe209`
+Restaurar: `wrangler d1 time-travel restore DB --env production --bookmark=<bookmark>`
