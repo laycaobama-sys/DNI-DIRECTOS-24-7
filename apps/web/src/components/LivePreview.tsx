@@ -208,7 +208,7 @@ export function LivePreview({ streamId, live }: { streamId: string; live: boolea
             <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
               {[
                 ['Resolución', stats.width ? `${stats.width}×${stats.height}` : '—'],
-                ['FPS', stats.fps ? stats.fps.toFixed(1) : '—'],
+                ['FPS en pantalla', stats.fps ? stats.fps.toFixed(1) : '—'],
                 ['Bitrate', stats.kbps ? `${stats.kbps.toLocaleString('es-ES')} kb/s` : '—'],
                 ['Retraso', stats.latency != null ? `${stats.latency.toFixed(1)} s` : '—'],
               ].map(([k, v]) => <div key={k} className="rounded-lg bg-ink-50 px-2.5 py-2 dark:bg-white/[0.03]"><dt className="text-ink-500">{k}</dt><dd className={cx('mt-0.5 font-mono font-semibold tabular-nums')}>{v}</dd></div>)}

@@ -198,7 +198,7 @@ function RecordingCard({ s }: { s: Stream }) {
           <span className={cx('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all', on ? 'left-[1.375rem]' : 'left-0.5')} />
         </button>
       </div>
-      {rec.active && <p className="mt-3 flex items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400"><span className="live-dot size-2 rounded-full bg-red-500" />Grabando · {fmtDuration(rec.active.durationSec)} · {fmtBytes(rec.active.sizeBytes || 1)}</p>}
+      {rec.active && <p className="mt-3 flex items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400"><span className="live-dot size-2 rounded-full bg-red-500" />{rec.active.sizeBytes ? `Grabando · ${fmtDuration(rec.active.durationSec)} guardados · ${fmtBytes(rec.active.sizeBytes)}` : 'Grabando · el primer fragmento se guarda al minuto'}</p>}
       {on && !rec.active && active(s) && <p className="mt-3 text-xs text-ink-500">Empezará a grabar en unos segundos.</p>}
       <label className="mt-3 flex items-center justify-between gap-2 text-xs text-ink-600 dark:text-ink-300">Borrar grabaciones tras
         <select className={cx(inputCls, '!h-8 !w-32 py-0 text-xs')} value={rec.retentionDays} onChange={(e) => save.mutate({ recordingRetentionDays: Number(e.target.value) })}>
