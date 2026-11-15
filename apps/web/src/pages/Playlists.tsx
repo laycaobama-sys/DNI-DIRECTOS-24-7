@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DndContext, type DragEndEvent, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowLeft, GripVertical, ListVideo, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, GripVertical, ImagePlus, ListVideo, Plus, Trash2, X } from 'lucide-react';
+import { ThumbnailStudio } from '../components/ThumbnailStudio';
 import { type Media, type Playlist, api, fmtDuration, fmtTime, get } from '../api';
 import { Badge, Button, Card, ConfirmButton, EmptyState, ErrorState, Field, Input, Modal, PageHeader, Skeleton, StatusBadge, errMsg, toast } from '../ui';
 import { useTitle } from '../hooks';
@@ -30,9 +31,14 @@ export function Playlists() {
               <li key={p.id}>
                 <Link to={`/app/playlists/${p.id}`} className="block">
                   <Card className="flex flex-wrap items-center justify-between gap-3 transition-shadow hover:shadow-md">
+                    <div className="flex min-w-0 items-center gap-4">
+                    <div className="aspect-video w-24 shrink-0 overflow-hidden rounded-lg bg-ink-100 dark:bg-ink-800">
+                      <img src={`/v1/thumbnails/playlist/${p.id}?v=${p.updatedAt}`} alt="" loading="lazy" className="size-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
+                    </div>
                     <div className="min-w-0">
                       <p className="truncate font-medium">{p.name}</p>
                       <p className="text-sm text-ink-500">{p.items.length} vídeo(s) · {fmtDuration(p.totalDurationSec)}</p>
+                    </div>
                     </div>
                     {!p.published ? <Badge tone="warn">Sin publicar</Badge> : p.hasUnpublishedChanges ? <Badge tone="warn">Cambios sin publicar</Badge> : <Badge tone="ok">Publicada v{p.published.version}</Badge>}
                   </Card>
@@ -71,6 +77,7 @@ function SortableRow({ row, index, onRemove }: { row: Row; index: number; onRemo
 }
 
 export function PlaylistEditor() {
+  const [studio, setStudio] = useState(false);
   const { id } = useParams();
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -112,6 +119,7 @@ export function PlaylistEditor() {
       <PageHeader title={p.name}
         description={<>{rows.length} vídeo(s) · {fmtDuration(total)} · <span aria-live="polite">{saving === 'saving' ? 'Guardando…' : saving === 'error' ? 'Error al guardar' : 'Borrador guardado'}</span></>}
         actions={<>
+          <Button onClick={() => setStudio(true)}><ImagePlus className="size-4" />Portada</Button>
           <ConfirmButton label="Borrar" icon={<Trash2 className="size-4" />} title="Borrar playlist" message="Se borrará la playlist. No se puede borrar si alguna emisión la usa." confirmLabel="Borrar" onConfirm={() => del.mutateAsync()} />
           <Button variant="primary" loading={publish.isPending} disabled={!rows.length || saving === 'saving' || !p.hasUnpublishedChanges} onClick={() => publish.mutate()}>{p.hasUnpublishedChanges ? 'Publicar cambios' : 'Publicada'}</Button>
         </>} />
@@ -145,6 +153,8 @@ export function PlaylistEditor() {
           )}
         </section>
       </div>
+      {studio && <ThumbnailStudio open onClose={() => setStudio(false)} entity="playlist" id={p.id} name={p.name} initialSrc={`/v1/thumbnails/playlist/${p.id}?v=${p.updatedAt}`}
+        onSaved={() => { void qc.invalidateQueries({ queryKey: ['playlists'] }); void qc.invalidateQueries({ queryKey: ['playlist', id] }); }} />}
     </>
   );
 }

@@ -26,13 +26,21 @@ Reproducir: `pnpm install && pnpm tools:setup && pnpm test && pnpm test:e2e-stre
 | 14 | Seguridad | **PARCIAL** | Probado: API interna 401 sin token, CSRF 403, SSRF (16 hosts privados), claves ausentes de respuestas, eventos y logs, consentimiento RTMP sin cifrar. No probado: rate limiting bajo carga, bucket en producción, contenedor sin privilegios. Sin webhooks. |
 | 15 | Entregables | **PARCIAL** | README, migraciones, `.env.example`, compose y CI incluidos; compose, Dockerfile y CI **sin ejecutar**. |
 
-## No probado o pendiente (resumen honesto)
+## Grabación, vista previa y miniaturas (0.5.0)
 
-- **Producción (13-nov-2026):** `pnpm smoke:prod` → 20/20 contra `dni-directos.ibraguimova19.workers.dev` con el motor en un equipo local: registro, subida multipart a R2, conversión, miniatura privada, playlist, destino cifrado, emisión creada, bloqueo de destinos privados, CSRF y cabeceras. **No se inició ninguna emisión en producción.**
-- El nodo de emisión para Containers (`EngineNode`) **nunca se ha ejecutado**: Cloudflare devuelve 401 al crear la aplicación (cuenta sin acceso a Containers).
-- Acceso con Google: código desplegado, **sin probar de extremo a extremo** (faltan credenciales). Solo se verificó que sin ellas responde 404 y no muestra el botón.
-- Imagen Docker y `docker-compose.yml`: escritos, **nunca construidos** (no había Docker).
-- Emisión de larga duración: la prueba más larga duró ~2 minutos. No hay ensayo de 24 h ni del reinicio de base de tiempos a las 12 h.
-- Emisión por RTMPS con TLS real y a plataformas reales.
-- Perfil 1080p30 y conversión bajo demanda de variantes; modos `shuffle` y `once` en emisión (solo tests unitarios del secuenciador).
+| # | Criterio | Estado | Evidencia |
+|---|---|---|---|
+| 16 | Vista previa con imagen y sonido reales | **PROBADO** (local y producción) | e2e H15: fragmento HLS H.264 1280×720 + AAC que empieza en fotograma clave; otra organización recibe 404 |
+| 17 | Grabación automática en la nube | **PROBADO** (local y producción: fragmento de 60,0 s en R2 y MP4) | e2e H15: se activa en directo sin reiniciar, se reproduce mientras graba, se cierra al desactivarla, MP4 con la duración grabada (±3 s), enlace firmado (206) y firma falsa rechazada (403) |
+| 18 | La grabación sobrevive al relevo de nodo | **PROBADO** (local) | e2e H7: se mata el nodo y la misma grabación continúa en el nuevo, con #EXT-X-DISCONTINUITY |
+| 19 | Miniaturas personalizadas | **PROBADO** (local) | e2e H16: vídeo, playlist, emisión y grabación; JPG/PNG/WebP por firma de bytes, 422 con otro formato, 413 por encima de 2 MB, aislamiento entre organizaciones |
+| 20 | Miniatura enviada a YouTube | **SIN PROBAR** | Necesita un canal de YouTube verificado y un destino creado con «YouTube con un clic» |
+
+## No probado o pendiente (resumen honesto, 15-nov-2026)
+
+- **Ya probado en producción** (antes no lo estaba): motor en Cloudflare Containers, RTMPS real a YouTube y directo de 9,99 h a 1080p30 con 3 cortes de YouTube recuperados solos (ver `docs/AUDIT_2026-11.md`).
+- Producción 0.5.0 (`node scripts/smoke-prod.mjs --egress`, 29/29): vista previa HLS desde Containers, grabación de 60 s en R2, MP4 exportado en la nube y miniatura. Falta probar el envío de la miniatura a un canal real de YouTube.
+- Imagen Docker y `docker-compose.yml`: escritos, nunca construidos (no hay Docker en el equipo de desarrollo).
+- Sin ensayo de 24 h continuas ni del reinicio de base de tiempos a las 12 h; el más largo es el de 10 h.
 - Vídeos grandes (>100 MB), rotados (móvil) o con audio 5.1.
+- Rate limiting bajo carga y facturación (no existe todavía).

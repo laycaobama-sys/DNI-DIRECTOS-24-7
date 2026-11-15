@@ -1,9 +1,11 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Play, Plus, Radio, RotateCw, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Clapperboard, ImagePlus, Play, Plus, Radio, RotateCw, Square, Trash2 } from 'lucide-react';
 import { ENCODING_PROFILES, type ProfileId, isActive, type StreamStatus } from '@dni/shared';
-import { type Stream, type StreamEvent, api, fmtBytes, fmtTime, get } from '../api';
+import { type Stream, type StreamEvent, api, fmtBytes, fmtDuration, fmtTime, get } from '../api';
+import { LivePreview } from '../components/LivePreview';
+import { ThumbnailStudio } from '../components/ThumbnailStudio';
 import { Badge, Button, Card, ConfirmButton, EmptyState, ErrorState, Field, Input, PageHeader, Skeleton, StatusBadge, cx, errMsg, inputCls, toast } from '../ui';
 import { useMe, useTitle } from '../hooks';
 import { usePlaylists } from './Playlists';
@@ -172,6 +174,70 @@ function YoutubeLiveStatus({ destinationId, active }: { destinationId: string; a
   );
 }
 
+const GB_PER_HOUR: Record<string, number> = { '720p30': 1.41, '1080p30': 2.77 };
+
+/** Grabación en la nube: se puede activar o desactivar en pleno directo (el motor lo aplica en ~3 s). */
+function RecordingCard({ s }: { s: Stream }) {
+  const qc = useQueryClient();
+  const rec = s.recording ?? { mode: 'off', retentionDays: 7, active: null };
+  const save = useMutation({
+    mutationFn: (b: { recordingMode?: 'off' | 'auto'; recordingRetentionDays?: number }) => api<Stream>('PATCH', `/v1/streams/${s.id}`, b),
+    onSuccess: (x) => { qc.setQueryData(['stream', s.id], x); toast(x.recording?.mode === 'auto' ? 'Grabación en la nube activada' : 'Ajuste guardado'); },
+    onError: (e) => toast(errMsg(e), 'error'),
+  });
+  const on = rec.mode === 'auto';
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 font-semibold"><Clapperboard className="size-4" />Grabar en la nube</h2>
+          <p className="mt-1 text-xs text-ink-500">Guarda cada sesión tal cual se emite, sin recodificar.</p>
+        </div>
+        <button type="button" role="switch" aria-checked={on} aria-label="Grabar en la nube" disabled={save.isPending} onClick={() => save.mutate({ recordingMode: on ? 'off' : 'auto' })}
+          className={cx('relative h-6 w-11 shrink-0 rounded-full transition-colors', on ? 'bg-signal' : 'bg-ink-300 dark:bg-ink-700')}>
+          <span className={cx('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all', on ? 'left-[1.375rem]' : 'left-0.5')} />
+        </button>
+      </div>
+      {rec.active && <p className="mt-3 flex items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400"><span className="live-dot size-2 rounded-full bg-red-500" />Grabando · {fmtDuration(rec.active.durationSec)} · {fmtBytes(rec.active.sizeBytes || 1)}</p>}
+      {on && !rec.active && active(s) && <p className="mt-3 text-xs text-ink-500">Empezará a grabar en unos segundos.</p>}
+      <label className="mt-3 flex items-center justify-between gap-2 text-xs text-ink-600 dark:text-ink-300">Borrar grabaciones tras
+        <select className={cx(inputCls, '!h-8 !w-32 py-0 text-xs')} value={rec.retentionDays} onChange={(e) => save.mutate({ recordingRetentionDays: Number(e.target.value) })}>
+          {[1, 3, 7, 14, 30, 90].map((d) => <option key={d} value={d}>{d} día{d > 1 ? 's' : ''}</option>)}
+        </select>
+      </label>
+      <p className="mt-2 text-[11px] text-ink-500">Ocupa unos {GB_PER_HOUR[s.profile] ?? 2} GB por hora de emisión. Puedes conservar las que quieras desde Grabaciones.</p>
+      <Link to="/app/recordings" className="mt-3 inline-block text-xs font-semibold text-air-500 hover:underline">Ver grabaciones →</Link>
+    </Card>
+  );
+}
+
+function ThumbnailCard({ s }: { s: Stream }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const hasYt = s.destinations.some((d) => d.youtube);
+  const v = s.thumbnail?.updatedAt ?? 0;
+  const sync = useMutation({
+    mutationFn: () => api<{ results: { ok: boolean; name: string; error?: string }[] }>('POST', `/v1/integrations/youtube/streams/${s.id}/thumbnail`),
+    onSuccess: (r) => r.results.forEach((x) => toast(x.ok ? `Miniatura enviada a YouTube (${x.name})` : `${x.name}: ${x.error}`, x.ok ? 'ok' : 'error')),
+    onError: (e) => toast(errMsg(e), 'error'),
+  });
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2 font-semibold"><ImagePlus className="size-4" />Miniatura del directo</h2>
+      <div className="mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-ink-100 dark:bg-ink-800">
+        {s.thumbnail ? <img src={`/v1/thumbnails/stream/${s.id}?v=${v}`} alt="Miniatura actual" className="size-full object-cover" /> : <span className="text-xs text-ink-500">Sin miniatura</span>}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button className="h-8" onClick={() => setOpen(true)}><ImagePlus className="size-4" />{s.thumbnail ? 'Editar' : 'Crear miniatura'}</Button>
+        {hasYt && s.thumbnail && <Button className="h-8" variant="ghost" loading={sync.isPending} onClick={() => sync.mutate()}>Enviar a YouTube</Button>}
+      </div>
+      <p className="mt-2 text-[11px] text-ink-500">{hasYt ? 'Se envía sola a los directos creados con «YouTube con un clic». YouTube exige un canal verificado para miniaturas personalizadas.' : 'Para que llegue a YouTube automáticamente, crea el destino con «YouTube con un clic».'}</p>
+      {open && <ThumbnailStudio open onClose={() => setOpen(false)} entity="stream" id={s.id} name={s.name} initialSrc={s.thumbnail ? `/v1/thumbnails/stream/${s.id}?v=${v}` : undefined}
+        onSaved={() => void qc.invalidateQueries({ queryKey: ['stream', s.id] })} />}
+    </Card>
+  );
+}
+
 export function StreamDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -239,29 +305,34 @@ export function StreamDetail() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="font-semibold">Registro de eventos</h2>
-            <select aria-label="Filtrar eventos" className={cx(inputCls, '!h-8 !w-52 shrink-0 py-0 text-xs')} value={level} onChange={(e) => setLevel(e.target.value as 'all' | 'warn')}>
-              <option value="all">Todos</option><option value="warn">Solo avisos y errores</option>
-            </select>
-          </div>
-          {ev.isLoading ? <Skeleton className="mt-4 h-32" /> : events.length === 0 ? <p className="mt-4 text-sm text-ink-500">Sin eventos todavía.</p> : (
-            <ol className="mt-3 max-h-96 space-y-1 overflow-y-auto pr-1 text-sm">
-              {events.map((e) => (
-                <li key={e.id} className="flex gap-3 rounded-lg px-2 py-1.5 odd:bg-ink-50 dark:odd:bg-ink-800/40">
-                  <time className="shrink-0 font-mono text-xs text-ink-500" dateTime={new Date(e.at).toISOString()}>{fmtTime(e.at)}</time>
-                  <span className={cx('min-w-0 break-words', e.level === 'error' && 'text-red-700 dark:text-red-300', e.level === 'warn' && 'text-amber-700 dark:text-amber-300')}>{e.message}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+          <h2 className="font-semibold">Monitor del directo</h2>
+          <p className="mb-3 mt-1 text-xs text-ink-500">Imagen y sonido reales de la señal que sale hacia tus destinos.</p>
+          <LivePreview streamId={s.id} live={on && s.engine.online} />
         </Card>
-        <Card>
-          <h2 className="font-semibold">Vista previa</h2>
-          <div className="mt-3 flex aspect-video items-center justify-center rounded-xl bg-ink-100 text-center text-sm text-ink-500 dark:bg-ink-800">Próximamente</div>
-          <p className="mt-3 text-xs text-ink-500">La vista previa en vídeo aún no está disponible. No mostramos una imagen fija como si fuera el directo: comprueba la señal en la plataforma de destino.</p>
-        </Card>
+        <div className="space-y-6">
+          <RecordingCard s={s} />
+          <ThumbnailCard s={s} />
+        </div>
       </div>
+
+      <Card className="mt-6">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold">Registro de eventos</h2>
+          <select aria-label="Filtrar eventos" className={cx(inputCls, '!h-8 !w-52 shrink-0 py-0 text-xs')} value={level} onChange={(e) => setLevel(e.target.value as 'all' | 'warn')}>
+            <option value="all">Todos</option><option value="warn">Solo avisos y errores</option>
+          </select>
+        </div>
+        {ev.isLoading ? <Skeleton className="mt-4 h-32" /> : events.length === 0 ? <p className="mt-4 text-sm text-ink-500">Sin eventos todavía.</p> : (
+          <ol className="mt-3 max-h-96 space-y-1 overflow-y-auto pr-1 text-sm">
+            {events.map((e) => (
+              <li key={e.id} className="flex gap-3 rounded-lg px-2 py-1.5 odd:bg-ink-50 dark:odd:bg-ink-800/40">
+                <time className="shrink-0 font-mono text-xs text-ink-500" dateTime={new Date(e.at).toISOString()}>{fmtTime(e.at)}</time>
+                <span className={cx('min-w-0 break-words', e.level === 'error' && 'text-red-700 dark:text-red-300', e.level === 'warn' && 'text-amber-700 dark:text-amber-300')}>{e.message}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Card>
     </>
   );
 }

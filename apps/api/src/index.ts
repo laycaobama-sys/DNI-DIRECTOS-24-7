@@ -13,6 +13,7 @@ import { media } from './routes/media';
 import { overview, runSchedules, schedules } from './routes/misc';
 import { playlists } from './routes/playlists';
 import { streams } from './routes/streams';
+import { expireRecordings, preview, publicRoutes, recordings, thumbnails } from './routes/recordings';
 
 const app = new Hono<AppEnv>();
 const origins = (env: Env) => env.APP_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean);
@@ -55,6 +56,10 @@ app.route('/v1/media', media);
 app.route('/v1/playlists', playlists);
 app.route('/v1/destinations', destinations);
 app.route('/v1/streams', streams);
+app.route('/v1/streams', preview);
+app.route('/v1/recordings', recordings);
+app.route('/v1/thumbnails', thumbnails);
+app.route('/v1/public', publicRoutes);
 app.route('/v1/schedules', schedules);
 app.route('/v1/overview', overview);
 app.route('/v1/admin', admin);
@@ -80,6 +85,7 @@ export default {
       await reconcile(env);
       await runSchedules(env);
       await wakeEngines(env);
+      await expireRecordings(env);
       await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(Date.now()).run();
       await env.DB.prepare('DELETE FROM stream_events WHERE created_at < ?').bind(Date.now() - 30 * 86_400_000).run();
       await env.DB.prepare('DELETE FROM rate_limits WHERE window_start < ?').bind(Date.now() - 86_400_000).run();

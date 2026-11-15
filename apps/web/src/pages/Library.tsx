@@ -1,6 +1,7 @@
 import { type DragEvent, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CloudUpload, Film, Image as ImageIcon, Music, RotateCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, CloudUpload, Film, Image as ImageIcon, ImagePlus, Music, RotateCw, Trash2 } from 'lucide-react';
+import { ThumbnailStudio } from '../components/ThumbnailStudio';
 import { type Media, api, fmtBytes, fmtDuration, fmtSpeed, get, uploadFile } from '../api';
 import { Button, Card, ConfirmButton, EmptyState, ErrorState, PageHeader, Progress, Skeleton, StatusBadge, cx, errMsg, toast } from '../ui';
 import { useTitle } from '../hooks';
@@ -15,6 +16,7 @@ export function useMedia(poll = true) {
 }
 
 export function Library() {
+  const [studio, setStudio] = useState<Media | null>(null);
   useTitle('Biblioteca');
   const qc = useQueryClient();
   const q = useMedia();
@@ -79,7 +81,7 @@ export function Library() {
               <li key={m.id}>
                 <Card className="flex h-full flex-col overflow-hidden p-0">
                   <div className="relative flex aspect-video items-center justify-center bg-ink-100 dark:bg-ink-800">
-                    {m.hasThumbnail ? <img src={`/v1/media/${m.id}/thumbnail`} alt="" loading="lazy" className="size-full object-cover" />
+                    {m.hasThumbnail ? <img src={`/v1/media/${m.id}/thumbnail${m.thumbVersion ? `?v=${m.thumbVersion}` : ''}`} alt="" loading="lazy" className="size-full object-cover" />
                       : m.status === 'failed' ? <AlertTriangle className="size-8 text-red-500" aria-hidden />
                       : m.kind === 'audio' ? <Music className="size-8 text-ink-400" aria-hidden /> : m.kind === 'image' ? <ImageIcon className="size-8 text-ink-400" aria-hidden /> : <Film className="size-8 text-ink-400" aria-hidden />}
                     {m.durationSec != null && <span className="absolute bottom-2 right-2 rounded bg-ink-950/80 px-1.5 py-0.5 font-mono text-xs text-white">{fmtDuration(m.durationSec)}</span>}
@@ -95,6 +97,7 @@ export function Library() {
                     <p className="text-xs text-ink-500">{[fmtBytes(m.sizeBytes), m.width && `${m.width}×${m.height}`, m.videoCodec?.toUpperCase(), m.fps && `${Math.round(m.fps)} fps`, m.hasAudio === false && 'sin audio'].filter(Boolean).join(' · ')}</p>
                     <div className="mt-auto flex justify-end gap-1 pt-1">
                       {m.status === 'failed' && <Button variant="ghost" className="h-8 px-2" onClick={() => retry.mutate(m.id)}><RotateCw className="size-4" />Reintentar</Button>}
+                      {m.status === 'ready' && m.kind === 'video' && <Button variant="ghost" className="h-8 px-2" onClick={() => setStudio(m)}><ImagePlus className="size-4" />Miniatura</Button>}
                       <ConfirmButton buttonVariant="ghost" label={<span className="sr-only">Borrar {m.filename}</span>} icon={<Trash2 className="size-4" />} title="Borrar archivo"
                         message={<>Se borrará <strong>{m.filename}</strong> y sus conversiones. Esta acción no se puede deshacer. Si el archivo está en alguna playlist, te avisaremos y no se borrará.</>}
                         confirmLabel="Borrar definitivamente" onConfirm={() => del.mutateAsync(m.id)} />
@@ -105,6 +108,8 @@ export function Library() {
             ))}
           </ul>
         )}
+      {studio && <ThumbnailStudio open onClose={() => setStudio(null)} entity="media" id={studio.id} name={studio.filename.replace(/\.[^.]+$/, '')} videoSrc={`/v1/media/${studio.id}/play`}
+        onSaved={() => void qc.invalidateQueries({ queryKey: ['media'] })} />}
     </>
   );
 }

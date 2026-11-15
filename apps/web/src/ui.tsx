@@ -129,7 +129,7 @@ export function Progress({ value, tone = 'air' }: { value: number; tone?: 'air' 
   );
 }
 
-export function Modal({ open, title, onClose, children, footer }: { open: boolean; title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+export function Modal({ open, title, onClose, children, footer, wide }: { open: boolean; title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const d = ref.current;
@@ -139,7 +139,7 @@ export function Modal({ open, title, onClose, children, footer }: { open: boolea
   }, [open]);
   return (
     <dialog ref={ref} onClose={onClose} onClick={(e) => { if (e.target === ref.current) onClose(); }}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl bg-white p-0 text-ink-900 shadow-2xl ring-1 ring-black/5 backdrop:bg-ink-950/70 backdrop:backdrop-blur-sm dark:bg-ink-900 dark:text-ink-100 dark:ring-white/10">
+      className={cx('m-auto max-h-[calc(100dvh-2rem)] overflow-y-auto', wide ? 'w-[min(68rem,calc(100vw-1.5rem))]' : 'w-[min(34rem,calc(100vw-1.5rem))]', ' rounded-2xl bg-white p-0 text-ink-900 shadow-2xl ring-1 ring-black/5 backdrop:bg-ink-950/70 backdrop:backdrop-blur-sm dark:bg-ink-900 dark:text-ink-100 dark:ring-white/10')}>
       {open && (
         <div className="p-6">
           <div className="mb-4 flex items-start justify-between gap-4">

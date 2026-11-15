@@ -106,7 +106,39 @@ try {
     node = ev.find((e) => e.type === 'claimed')?.message;
     console.log(`  estados observados: ${[...seen].join(' → ')}`);
     check('El motor reclama la emisión', started.status === 200 && !!node, node ?? 'ningún nodo la reclamó');
-    check('Conexión RTMPS establecida con YouTube desde el motor', [...seen].some((s) => s.includes('/live')), `bitrate ${last?.destinations?.[0]?.bitrateKbps ?? '—'} kb/s`);
+    // Con una clave inventada YouTube puede cortar tras el saludo TLS: el relé solo da «cerró la conexión al empezar» si el TLS llegó a establecerse.
+    const tlsOk = [...seen].some((s) => s.includes('/live') || s.includes('cerró la conexión al empezar'));
+    check('Conexión RTMPS (TLS) con YouTube desde el motor; la clave inventada se rechaza como debe', tlsOk, [...seen].some((s) => s.includes('/live')) ? `bitrate ${last?.destinations?.[0]?.bitrateKbps ?? '—'} kb/s` : 'TLS establecido, YouTube rechaza la clave inventada');
+
+    console.log('\n▶ Vista previa, grabación en la nube y miniatura (en Cloudflare)');
+    const bin = async (u, h = {}) => { const r = await fetch(API + u, { headers: { cookie, ...h } }); return { status: r.status, buf: Buffer.from(await r.arrayBuffer()), headers: r.headers }; };
+    const isTs = (b) => b.length >= 188 * 4 && b[0] === 0x47 && b[188] === 0x47 && b[376] === 0x47;
+    const rec = await call('PATCH', `/v1/streams/${st.json.id}`, { recordingMode: 'auto', recordingRetentionDays: 1 });
+    check('Grabación activada en pleno directo', rec.status === 200 && rec.json?.recording?.mode === 'auto');
+    let m3u = null;
+    for (let i = 0; i < 20 && !m3u; i++) { const r = await fetch(`${API}/v1/streams/${st.json.id}/preview.m3u8`, { headers: { cookie } }); if (r.status === 200) m3u = await r.text(); else await sleep(2000); }
+    const seg = m3u && /^(preview\/\d+\.ts)$/m.exec(m3u)?.[1];
+    const pv = seg ? await bin(`/v1/streams/${st.json.id}/${seg}`) : null;
+    check('Vista previa HLS generada por el motor en la nube', !!pv && pv.status === 200 && isTs(pv.buf), pv ? `${(pv.buf.length / 1024).toFixed(0)} KB por fragmento` : 'sin playlist');
+    const jpg = Buffer.from(await (await fetch(`${API}/v1/media/${it.json.mediaId}/thumbnail`, { headers: { cookie } })).arrayBuffer());
+    const th = await call('PUT', `/v1/thumbnails/stream/${st.json.id}`, undefined, jpg);
+    check('Miniatura de la emisión guardada en R2', th.status === 200 && (await bin(`/v1/thumbnails/stream/${st.json.id}`)).status === 200);
+    let r0 = null;
+    for (let i = 0; i < 80; i++) { await sleep(3000); r0 = (await call('GET', '/v1/recordings')).json?.items?.[0]; if (r0?.segments >= 1) break; }
+    check('Fragmento de 60 s grabado y subido a R2 por partes', r0?.segments >= 1 && r0.durationSec > 50, r0 ? `${r0.segments} fragmento(s) · ${r0.durationSec.toFixed(1)} s · ${(r0.sizeBytes / 1e6).toFixed(1)} MB` : 'ninguno');
+    if (r0) {
+      const s0 = await bin(`/v1/recordings/${r0.id}/segments/0.ts`, { range: 'bytes=0-4095' });
+      check('El fragmento grabado se reproduce desde R2 (Range)', s0.status === 206 && isTs(s0.buf));
+      await call('PATCH', `/v1/streams/${st.json.id}`, { recordingMode: 'off' });
+      let done = null;
+      for (let i = 0; i < 30; i++) { await sleep(2000); done = (await call('GET', `/v1/recordings/${r0.id}`)).json; if (done?.status === 'ready') break; }
+      const ex = await call('POST', `/v1/recordings/${r0.id}/export`, {});
+      let exd = null;
+      for (let i = 0; i < 60 && ex.status === 202; i++) { await sleep(3000); exd = (await call('GET', `/v1/recordings/${r0.id}`)).json; if (exd?.export?.status === 'ready' || exd?.export?.status === 'failed') break; }
+      const mp4 = exd?.export?.status === 'ready' ? await bin(`/v1/recordings/${r0.id}/download`, { range: 'bytes=0-63' }) : null;
+      check('Exportación a MP4 en la nube y descarga', !!mp4 && mp4.status === 206 && mp4.buf.subarray(4, 8).toString() === 'ftyp', exd?.export?.error ?? `${done?.segments} fragmento(s)`);
+      await call('DELETE', `/v1/recordings/${r0.id}`); // borra también sus objetos de R2
+    }
     await call('POST', `/v1/streams/${st.json.id}/stop`);
     for (let i = 0; i < 20; i++) { await sleep(1500); if ((await call('GET', `/v1/streams/${st.json.id}`)).json?.status === 'stopped') break; }
     check('Detención confirmada', (await call('GET', `/v1/streams/${st.json.id}`)).json?.status === 'stopped');

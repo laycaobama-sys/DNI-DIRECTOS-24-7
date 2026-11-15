@@ -179,7 +179,8 @@ export async function wakeEngines(env: Env): Promise<{ nodes: number }> {
   const w = await first<{ streams: number; media: number }>(env.DB,
     `SELECT (SELECT COUNT(*) FROM streams WHERE desired_state = 'running' AND deleted_at IS NULL) AS streams,
             (SELECT COUNT(*) FROM media_assets WHERE status IN ('queued','processing') AND deleted_at IS NULL)
-          + (SELECT COUNT(*) FROM media_variants WHERE status IN ('pending','processing')) AS media`);
+          + (SELECT COUNT(*) FROM media_variants WHERE status IN ('pending','processing'))
+          + (SELECT COUNT(*) FROM recordings WHERE export_status IN ('pending','processing') AND export_attempts < 3) AS media`);
   if (!w || (w.streams === 0 && w.media === 0)) return { nodes: 0 };
   const capacity = Math.max(1, Number(env.ENGINE_CAPACITY) || 4);
   const max = await engineMaxNodes(env);

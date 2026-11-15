@@ -65,12 +65,25 @@ export function openRelay(t: ParsedTarget, address: string): Promise<Relay> {
     sockets.add(upstream);
     upstream.setNoDelay(true);
     let upstreamOpen = false;
-    upstream.once(t.scheme === 'rtmps' ? 'secureConnect' : 'connect', () => { upstreamOpen = true; upstream.setTimeout(0); });
+    let openedAt = 0;
+    upstream.once(t.scheme === 'rtmps' ? 'secureConnect' : 'connect', () => { upstreamOpen = true; openedAt = Date.now(); upstream.setTimeout(0); });
     upstream.on('timeout', () => { lastError = `Tiempo de espera agotado al conectar con ${t.host}:${t.port}.`; upstream.destroy(); });
-    upstream.on('error', (e) => { lastError = describe(e as NodeJS.ErrnoException, t); client.destroy(); });
+    upstream.on('error', (e) => {
+      const mins = openedAt ? (Date.now() - openedAt) / 60_000 : 0;
+      lastError = (e as NodeJS.ErrnoException).code === 'ECONNRESET' && mins >= 1
+        ? `${t.host} cortó la conexión tras ${Math.round(mins)} min de emisión correcta (corte del servidor de ingesta). Reconectando automáticamente.`
+        : describe(e as NodeJS.ErrnoException, t);
+      client.destroy();
+    });
     upstream.on('close', () => {
       // Cierre del servidor tras conectar sin error de red: típico de clave rechazada o directo no preparado.
-      if (upstreamOpen && !lastError && !client.destroyed) lastError = `${t.host} cerró la conexión. Comprueba la clave de emisión y que tu canal tenga los directos activados.`;
+      if (upstreamOpen && !lastError && !client.destroyed) {
+        const mins = (Date.now() - openedAt) / 60_000;
+        // Tras emitir bien un rato, un cierre es un corte del servidor de ingesta (habitual y transitorio), no una clave errónea.
+        lastError = mins >= 1
+          ? `${t.host} cerró la conexión tras ${mins >= 60 ? `${(mins / 60).toFixed(1)} h` : `${Math.round(mins)} min`} de emisión correcta (corte del servidor de ingesta). Reconectando automáticamente.`
+          : `${t.host} cerró la conexión al empezar. Comprueba la clave de emisión y que tu canal tenga los directos activados.`;
+      }
       client.destroy();
       sockets.delete(upstream);
     });

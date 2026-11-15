@@ -15,6 +15,8 @@ export interface Probe {
   videoDurationSec: number | null; audioDurationSec: number | null;
 }
 
+type TranscodeJob = Exclude<MediaJob, { type: 'recording_export' }>;
+
 class MediaError extends Error {
   constructor(public code: string, message: string, public retryable = false) { super(message); }
 }
@@ -90,7 +92,7 @@ async function uploadVariant(mediaId: string, file: string, profile: ProfileId, 
   return vid;
 }
 
-async function transcode(job: MediaJob, original: string, probe: Probe, dir: string, onProgress: (pct: number) => void) {
+async function transcode(job: TranscodeJob, original: string, probe: Probe, dir: string, onProgress: (pct: number) => void) {
   const frame = 1 / ENCODING_PROFILES[job.profile].fps;
   const srcDur = probe.videoDurationSec ?? probe.durationSec;
   if (!srcDur || srcDur < frame * 2) throw new MediaError('too_short', 'El vídeo es demasiado corto o no informa de su duración.');
@@ -109,7 +111,7 @@ async function transcode(job: MediaJob, original: string, probe: Probe, dir: str
   return { out, durationSec };
 }
 
-export async function processMediaJob(job: MediaJob): Promise<void> {
+export async function processMediaJob(job: TranscodeJob): Promise<void> {
   const dir = path.join(cfg.dataDir, 'work', job.mediaId);
   const resultPath = `/internal/media/${job.mediaId}/result${job.type === 'variant' ? `?variantId=${job.variantId}` : ''}`;
   let lastReport = 0;

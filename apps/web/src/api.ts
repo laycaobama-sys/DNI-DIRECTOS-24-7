@@ -107,6 +107,7 @@ export interface Media {
   id: string; filename: string; kind: 'video' | 'audio' | 'image' | null; status: 'uploading' | 'queued' | 'processing' | 'ready' | 'failed';
   sizeBytes: number; durationSec: number | null; width: number | null; height: number | null; fps: number | null; videoCodec: string | null; audioCodec: string | null;
   hasAudio: boolean | null; progress: number; error: { code: string; message: string } | null; createdAt: number; hasThumbnail: boolean;
+  customThumbnail?: boolean; thumbVersion?: string | null;
 }
 export interface Playlist {
   id: string; name: string; items: Media[]; totalDurationSec: number; hasUnpublishedChanges: boolean;
@@ -125,6 +126,13 @@ export interface Stream {
   status: string; statusReason: string | null; desiredState: 'running' | 'stopped'; engine: { online: boolean; lastHeartbeatAt: number | null };
   startedAt: number | null; nowPlaying: { title: string; cycle: number; position: number } | null; pendingPlaylistChange: boolean;
   metrics: { uptimeSec: number; feederBytes: number; itemsPlayed: number } | null; destinations: StreamDest[];
+  recording?: { mode: 'off' | 'auto'; retentionDays: number; active: { id: string; durationSec: number; sizeBytes: number } | null };
+  thumbnail?: { updatedAt: number | null } | null;
+}
+export interface Recording {
+  id: string; name: string; status: 'recording' | 'ready' | 'exporting' | 'failed'; streamId: string | null; streamName: string | null; startedAt: number; endedAt: number | null;
+  durationSec: number; sizeBytes: number; segments: number; hasThumbnail: boolean; expiresAt: number | null;
+  export: { status: 'pending' | 'processing' | 'ready' | 'failed'; error: string | null } | null;
 }
 export interface StreamEvent { id: number; type: string; level: 'info' | 'warn' | 'error'; message: string; at: number }
 

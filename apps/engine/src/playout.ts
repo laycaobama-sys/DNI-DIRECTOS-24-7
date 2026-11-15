@@ -19,6 +19,7 @@ import {
 } from '@dni/shared';
 import { ApiError, api, cfg, download, errorLine, lastLine, log, sleep } from './core';
 import { type Relay, openRelay, parseTarget } from './relay';
+import { Previewer, Recorder, type TsState, isVideoKey } from './segmenter';
 
 const MAX_PUSHER_BUFFER = 24 * 1024 * 1024;
 const STALL_MS = 20_000;
@@ -84,13 +85,7 @@ async function resolveTarget(host: string): Promise<{ address: string } | { erro
  * Un FFmpeg que empieza a leer a mitad de un GOP ve cortes H.264 sin SPS/PPS («non-existing PPS») y el binario
  * estático de Linux se estrella (SIGSEGV) al analizarlos. Por eso cada emisor arranca en un fotograma clave.
  */
-export interface TsState { pat: Buffer | null; pmt: Buffer | null; pmtPid: number; videoPid: number }
-
 const pidOf = (b: Buffer, o: number) => ((b[o + 1]! & 0x1f) << 8) | b[o + 2]!;
-/** ¿Es el inicio de un fotograma clave de vídeo? (PUSI + random_access_indicator en el PID del vídeo). */
-function isVideoKey(b: Buffer, o: number, videoPid: number): boolean {
-  return pidOf(b, o) === videoPid && !!(b[o + 1]! & 0x40) && !!(b[o + 3]! & 0x20) && b[o + 4]! > 0 && !!(b[o + 5]! & 0x40);
-}
 
 // ───────────────────────── Pusher: un proceso por destino ─────────────────────────
 class Pusher {
@@ -293,7 +288,11 @@ export class StreamRunner {
   private clock: { wall: number; pcr: number } | null = null;
   private lastPcr = -1;
   private cc = new Map<number, number>();
-  private ts: TsState = { pat: null, pmt: null, pmtPid: -1, videoPid: -1 };
+  private ts: TsState = { pat: null, pmt: null, pmtPid: -1, videoPid: -1, pcr: 0 };
+  /** Grabación en la nube y vista previa: se activan según lo que indique la API en cada latido. */
+  private recorder: Recorder | null = null;
+  private recorderAt = 0;
+  private previewer: Previewer | null = null;
 
   constructor(readonly a: StreamAssignment) {
     this.playlist = a.playlist;
@@ -328,6 +327,8 @@ export class StreamRunner {
     }
     if (this.hbTimer) clearTimeout(this.hbTimer);
     await Promise.all([...this.pushers.values()].map((p) => p.close()));
+    // La grabación se cierra subiendo el fragmento en curso; la vista previa simplemente se detiene.
+    await Promise.all([this.recorder?.close(this.ts.pcr), this.previewer?.close(this.ts.pcr)]);
     for (const v of this.held) { const n = (inUse.get(v) ?? 1) - 1; if (n <= 0) inUse.delete(v); else inUse.set(v, n); }
     if (!this.fenced) await this.finalHeartbeat();
     await evictCache().catch(() => {});
@@ -409,6 +410,8 @@ export class StreamRunner {
       this.lastFeedAt = Date.now();
       this.feederBytes += chunk.length;
       for (const pusher of this.pushers.values()) pusher.write(chunk, this.ts);
+      this.recorder?.write(chunk, this.ts);
+      this.previewer?.write(chunk, this.ts);
     };
     let carry: Buffer = Buffer.alloc(0);
     try {
@@ -439,6 +442,7 @@ export class StreamRunner {
           if (!(buf[off + 3]! & 0x20) || buf[off + 4]! === 0 || !(buf[off + 5]! & 0x10)) continue;
           this.ts.videoPid = tsPid; // el PCR viaja en el PID del vídeo
           const pcr = (buf[off + 6]! * 33554432 + buf[off + 7]! * 131072 + buf[off + 8]! * 512 + buf[off + 9]! * 2 + (buf[off + 10]! >> 7)) / 90000;
+          this.ts.pcr = pcr;
           if (off > from) { bus(buf.subarray(from, off)); from = off; }
           const now = Date.now();
           // Discontinuidad (reinicio de base de tiempos, ítem fallido): se re-ancla el reloj.
@@ -503,6 +507,7 @@ export class StreamRunner {
       const r = await api<HeartbeatResponse>('POST', `/internal/streams/${this.a.streamId}/heartbeat`, body, { timeoutMs: 5000 });
       this.lastOkHeartbeat = Date.now();
       if (r.command === 'stop') return this.stop('stopped');
+      this.applyTaps(r);
       if (r.restartNonce !== this.a.restartNonce) return this.stop('restart');
       if (r.configRevision !== this.configRevision && !this.refreshing) void this.refreshConfig(r.configRevision);
     } catch (e) {
@@ -513,6 +518,22 @@ export class StreamRunner {
       log.warn({ stream: this.a.streamId }, `heartbeat failed: ${e instanceof Error ? e.message : e}`);
     }
     this.scheduleHeartbeat();
+  }
+
+  /** Activa o detiene grabación y vista previa según la API (sin tocar la emisión). */
+  private applyTaps(r: HeartbeatResponse) {
+    // Si la API no pudo abrir la grabación, se reintenta cada 30 s (sin saturarla en cada latido).
+    if (this.recorder?.closed && !this.recorder.id && Date.now() - this.recorderAt > 30_000) this.recorder = null;
+    if (r.recording === 'auto' && !this.recorder) {
+      this.recorderAt = Date.now();
+      this.recorder = new Recorder(this.a.streamId, this.a.sessionId, this.a.fencingToken, cfg.nodeId, r.recordingSegmentSec ?? 60);
+      this.emit({ type: 'recording_started', level: 'info', message: 'Grabación en la nube iniciada.' });
+    } else if (r.recording !== 'auto' && this.recorder) {
+      const rec = this.recorder; this.recorder = null;
+      void rec.close(this.ts.pcr).then(() => this.emit({ type: 'recording_stopped', level: 'info', message: `Grabación detenida${rec.lostSegments ? ` (${rec.lostSegments} fragmento(s) perdidos)` : ''}.` }));
+    }
+    if (r.previewWanted && !this.previewer) this.previewer = new Previewer(this.a.streamId, this.a.fencingToken);
+    else if (!r.previewWanted && this.previewer) { const p = this.previewer; this.previewer = null; void p.close(this.ts.pcr); }
   }
 
   /** Destinos: se aplican al momento. Playlist: se precarga y entra en el siguiente límite de ítem. */

@@ -23,6 +23,8 @@ export interface Env {
   ENGINE_MAX_NODES?: string;
   /** JSON {nombre: sha256} de los artefactos del motor publicados en R2 (lo rellena el script de despliegue). */
   ENGINE_ASSETS?: string;
+  /** Duración de cada fragmento de grabación (por defecto 60 s; las pruebas usan menos). */
+  RECORDING_SEGMENT_SEC?: string;
 }
 
 export interface AuthCtx { userId: string; orgId: string; role: Role; plan: string; email: string; superadmin: boolean }

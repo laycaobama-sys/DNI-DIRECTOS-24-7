@@ -74,7 +74,13 @@ const engine = (n: number) => start(`engine-${n}`, process.execPath, ['--import'
   API_URL: API, ENGINE_TOKEN, NODE_ID: `e2e-node-${n}`, DATA_DIR: path.join(dir, `engine-${n}`), FFMPEG_PATH: FFMPEG, FFPROBE_PATH: FFPROBE, HEARTBEAT_MS: '2000', ALLOW_PRIVATE_DESTINATIONS: 'true',
 });
 const wrangler = (...args: string[]) => [path.join(root, 'apps/api/node_modules/wrangler/bin/wrangler.js'), ...args];
-const d1 = (sql: string) => execFileSync(process.execPath, wrangler('d1', 'execute', 'DB', '--local', '--persist-to', path.join(dir, 'state'), '--command', sql), { cwd: path.join(root, 'apps/api'), stdio: 'pipe', env: { ...process.env, CI: '1' } });
+/** SQL directo en la D1 local. El SQLite local puede estar bloqueado un instante mientras la API escribe: se reintenta. */
+const d1 = (sql: string) => {
+  for (let i = 0; ; i++) {
+    try { return execFileSync(process.execPath, wrangler('d1', 'execute', 'DB', '--local', '--persist-to', path.join(dir, 'state'), '--command', sql), { cwd: path.join(root, 'apps/api'), stdio: 'pipe', env: { ...process.env, CI: '1' } }); }
+    catch (e) { if (i >= 5 || !String((e as { stderr?: Buffer }).stderr ?? e).includes('SQLITE_BUSY')) throw e; execFileSync(process.execPath, ['-e', 'setTimeout(()=>{},1500)']); }
+  }
+};
 
 class Client {
   cookie = '';
@@ -94,6 +100,12 @@ class Client {
     let json: any = null;
     try { json = JSON.parse(text); } catch { /* binario */ }
     return { status: res.status, json, text, headers: res.headers };
+  }
+  /** Descarga binaria (fragmentos, MP4): text() corrompería los bytes. */
+  async bin(p: string, extra: Record<string, string> = {}) {
+    const res = await fetch(`${API}${p}`, { headers: { ...(this.cookie ? { cookie: this.cookie } : {}), ...extra } });
+    if (!res.ok) throw new Error(`GET ${p} → ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
   }
   async ok(method: string, p: string, body?: unknown) {
     const r = await this.req(method, p, body);
@@ -146,7 +158,7 @@ async function main() {
   execFileSync(process.execPath, wrangler('d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', path.join(dir, 'state')), { cwd: path.join(root, 'apps/api'), stdio: 'pipe', env: { ...process.env, CI: '1' } });
   const mtxB = mediamtx('rtmp-b', RTMP_B);
   mediamtx('rtmp-a', RTMP_A);
-  startIn(path.join(root, 'apps/api'), 'api', process.execPath, wrangler('dev', '--port', String(API_PORT), '--persist-to', path.join(dir, 'state'), '--var', 'LEASE_TTL_SEC:10', '--show-interactive-dev-session=false'), { CI: '1' }).on('exit', () => {});
+  startIn(path.join(root, 'apps/api'), 'api', process.execPath, wrangler('dev', '--port', String(API_PORT), '--persist-to', path.join(dir, 'state'), '--var', 'LEASE_TTL_SEC:20', '--var', 'RECORDING_SEGMENT_SEC:6', '--show-interactive-dev-session=false'), { CI: '1' }).on('exit', () => {});
   await waitFor('API healthz', async () => (await fetch(`${API}/healthz`)).ok, 90_000);
   check('API responde /healthz', true);
 
@@ -221,6 +233,68 @@ async function main() {
   const s1 = await get();
   check('Dashboard: «ahora suena» y motor online', !!s1.nowPlaying?.title && s1.engine.online === true, s1.nowPlaying?.title);
 
+  step('H15 · Vista previa en directo (imagen y sonido reales) y grabación en la nube');
+  const probeFile = (f: string) => JSON.parse(execFileSync(FFPROBE, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', f], { encoding: 'utf8' })) as { streams: any[]; format: any };
+  const pv = await waitFor('vista previa lista', async () => { const r = await A.req('GET', `/v1/streams/${st.id}/preview.m3u8`); return r.status === 200 && r.text.includes('#EXTINF') ? r.text : null; }, 40_000, 1500);
+  const pvSeg = /^(preview\/\d+\.ts)$/m.exec(pv)![1]!;
+  const pvBuf = await A.bin(`/v1/streams/${st.id}/${pvSeg}`);
+  writeFileSync(path.join(dir, 'preview.ts'), pvBuf);
+  const pvp = probeFile(path.join(dir, 'preview.ts'));
+  const pvv = pvp.streams.find((x) => x.codec_type === 'video'), pva = pvp.streams.find((x) => x.codec_type === 'audio');
+  check('Vista previa: fragmento HLS con vídeo H.264 y audio AAC reales (no imagen fija)', pvv?.codec_name === 'h264' && pva?.codec_name === 'aac' && Number(pvp.format.duration) > 0.5,
+    `${pvv?.width}x${pvv?.height} ${pva?.codec_name} ${Number(pvp.format.duration).toFixed(2)} s, ${(pvBuf.length / 1024).toFixed(0)} KB`);
+  const firstKey = execFileSync(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=flags', '-read_intervals', '%+#1', '-of', 'csv=p=0', path.join(dir, 'preview.ts')], { encoding: 'utf8' }).trim();
+  check('Cada fragmento empieza en un fotograma clave (reproducible por sí solo)', firstKey.startsWith('K'), `flags 1.er paquete: ${firstKey}`);
+  check('B no puede ver la vista previa de A (404)', (await B.req('GET', `/v1/streams/${st.id}/preview.m3u8`)).status === 404);
+
+  const recOn = await A.ok('PATCH', `/v1/streams/${st.id}`, { recordingMode: 'auto', recordingRetentionDays: 3 });
+  check('Grabación activada en pleno directo sin reiniciar', recOn.recording?.mode === 'auto' && recOn.status === 'live');
+  await waitFor('evento recording_started', async () => (await events()).some((e) => e.type === 'recording_started'), 20_000);
+  const recLive = await waitFor('2 fragmentos grabados', async () => { const r = (await A.ok('GET', '/v1/recordings')).items[0]; return r && r.segments >= 2 ? r : null; }, 60_000, 2000);
+  check('Grabación en curso visible con duración y tamaño reales', recLive.status === 'recording' && recLive.durationSec > 8 && recLive.sizeBytes > 100_000, `${recLive.segments} fragmentos · ${recLive.durationSec.toFixed(1)} s · ${(recLive.sizeBytes / 1e6).toFixed(1)} MB`);
+  const m3u = (await A.req('GET', `/v1/recordings/${recLive.id}/playlist.m3u8`)).text;
+  check('Grabación reproducible mientras se graba (HLS EVENT)', m3u.includes('#EXT-X-PLAYLIST-TYPE:EVENT') && !m3u.includes('#EXT-X-ENDLIST'));
+  const segBuf = await A.bin(`/v1/recordings/${recLive.id}/segments/0.ts`);
+  writeFileSync(path.join(dir, 'rec-0.ts'), segBuf);
+  const rp = probeFile(path.join(dir, 'rec-0.ts'));
+  check('Fragmento grabado: H.264 1280x720 + AAC, sin recodificar', rp.streams.some((x) => x.codec_name === 'h264' && x.width === 1280) && rp.streams.some((x) => x.codec_name === 'aac'), `${Number(rp.format.duration).toFixed(2)} s`);
+  check('B no puede ver ni borrar grabaciones de A (404)', (await Promise.all([B.req('GET', `/v1/recordings/${recLive.id}`), B.req('GET', `/v1/recordings/${recLive.id}/segments/0.ts`), B.req('DELETE', `/v1/recordings/${recLive.id}`)])).every((r) => r.status === 404));
+  check('Mientras graba no se puede exportar ni borrar (409)', (await A.req('POST', `/v1/recordings/${recLive.id}/export`, {})).status === 409 && (await A.req('DELETE', `/v1/recordings/${recLive.id}`)).status === 409);
+
+  await A.ok('PATCH', `/v1/streams/${st.id}`, { recordingMode: 'off' });
+  const recDone = await waitFor('grabación cerrada', async () => { const r = await A.ok('GET', `/v1/recordings/${recLive.id}`); return r.status === 'ready' ? r : null; }, 60_000, 1500);
+  check('Al desactivarla la grabación queda cerrada y la emisión sigue', recDone.endedAt > 0 && (await get()).status === 'live', `${recDone.segments} fragmentos · ${recDone.durationSec.toFixed(1)} s`);
+  check('Playlist final de la grabación es VOD completa', (await A.req('GET', `/v1/recordings/${recDone.id}/playlist.m3u8`)).text.includes('#EXT-X-ENDLIST'));
+  await A.ok('POST', `/v1/recordings/${recDone.id}/export`, {});
+  const recExp = await waitFor('MP4 exportado', async () => { const r = await A.ok('GET', `/v1/recordings/${recDone.id}`); if (r.export?.status === 'failed') throw new Error(r.export.error); return r.export?.status === 'ready' ? r : null; }, 120_000, 2000);
+  const mp4 = await A.bin(`/v1/recordings/${recExp.id}/download`);
+  writeFileSync(path.join(dir, 'grabacion-export.mp4'), mp4);
+  const mp = probeFile(path.join(dir, 'grabacion-export.mp4'));
+  check('Exportación a MP4 válida con vídeo y audio y la duración grabada', mp.format.format_name.includes('mp4') && mp.streams.some((x) => x.codec_name === 'h264') && mp.streams.some((x) => x.codec_name === 'aac') && Math.abs(Number(mp.format.duration) - recDone.durationSec) < 3,
+    `${Number(mp.format.duration).toFixed(1)} s vs ${recDone.durationSec.toFixed(1)} s grabados · ${(mp4.length / 1e6).toFixed(1)} MB`);
+  const sh = await A.ok('POST', `/v1/recordings/${recExp.id}/share`, { days: 1 });
+  const pub = await fetch(sh.url.replace(/^https?:\/\/[^/]+/, API), { headers: { range: 'bytes=0-1023' } });
+  const forged = await fetch(sh.url.replace(/^https?:\/\/[^/]+/, API).replace(/s=[^&]+/, 's=AAAA'));
+  check('Enlace de descarga firmado: funciona sin sesión y rechaza firmas falsas', pub.status === 206 && forged.status === 403, `${pub.status} / ${forged.status}`);
+
+  step('H16 · Miniaturas personalizadas (vídeos, playlists, emisiones, grabaciones)');
+  const jpg = path.join(dir, 'thumb.jpg');
+  ff('-f', 'lavfi', '-i', 'testsrc2=s=1280x720', '-frames:v', '1', '-q:v', '3', jpg);
+  const jb = readFileSync(jpg);
+  const puts = await Promise.all([['media', ids.a], ['playlist', pl.id], ['stream', st.id], ['recording', recExp.id]].map(([e, i]) => A.req('PUT', `/v1/thumbnails/${e}/${i}`, undefined, jb)));
+  check('Miniatura guardada en vídeo, playlist, emisión y grabación', puts.every((r) => r.status === 200), puts.map((r) => r.status).join(','));
+  const mt = await A.req('GET', `/v1/media/${ids.a}/thumbnail`);
+  check('El vídeo usa la miniatura personalizada', mt.status === 200 && (await A.ok('GET', `/v1/media/${ids.a}`)).customThumbnail === true);
+  check('La emisión indica que tiene miniatura', !!(await get()).thumbnail);
+  const badImg = await A.req('PUT', `/v1/thumbnails/stream/${st.id}`, undefined, Buffer.from('<svg onload=alert(1)>'));
+  const bigImg = await A.req('PUT', `/v1/thumbnails/stream/${st.id}`, undefined, Buffer.concat([jb.subarray(0, 4), randomBytes(2 * 1024 * 1024 + 10)]));
+  check('Se rechazan formatos no válidos (422) y más de 2 MB (413)', badImg.status === 422 && bigImg.status === 413, `${badImg.status} / ${bigImg.status}`);
+  check('B no puede ver ni cambiar miniaturas de A (404)', (await Promise.all([B.req('GET', `/v1/thumbnails/stream/${st.id}`), B.req('PUT', `/v1/thumbnails/media/${ids.a}`, undefined, jb)])).every((r) => r.status === 404));
+  const rng = await A.req('GET', `/v1/media/${ids.a}/play`, undefined, undefined, { range: 'bytes=0-99' });
+  check('Reproducción del vídeo con Range (vista previa y captura de fotogramas)', rng.status === 206 && rng.headers.get('content-range')?.startsWith('bytes 0-99/') === true);
+  await A.ok('DELETE', `/v1/recordings/${recExp.id}`);
+  check('Borrar una grabación la elimina del listado', !(await A.ok('GET', '/v1/recordings')).items.some((r: any) => r.id === recExp.id));
+
   step('H6 · Caída de un destino: el otro continúa');
   killTree(mtxB);
   await waitFor('estado degraded', async () => (await get()).status === 'degraded', 60_000);
@@ -243,6 +317,8 @@ async function main() {
   check('Sin reinicio de sesión ni de destinos por la edición', (await A.ok('GET', `/v1/streams/${st.id}/sessions`)).items.length === sessBefore && dA(await get()).restarts === 0);
 
   step('H7 · Matar el worker: reconciliación, recuperación y sin procesos duplicados');
+  await A.ok('PATCH', `/v1/streams/${st.id}`, { recordingMode: 'auto' });
+  const recBefore = await waitFor('grabación antes del relevo', async () => { const r = (await A.ok('GET', '/v1/recordings')).items.find((x: any) => x.status === 'recording'); return r && r.segments >= 1 ? r : null; }, 60_000, 2000);
   killTree(eng);
   await sleep(3000);
   check('Sin procesos FFmpeg huérfanos tras matar el nodo', ffmpegCount() === 0, `ffmpeg vivos: ${ffmpegCount()}`);
@@ -258,6 +334,12 @@ async function main() {
   check('Señal restablecida en ambos ingests', probeRtmp(urlA).video?.codec_name === 'h264' && probeRtmp(urlB).video?.codec_name === 'h264');
   const stale = await fetch(`${API}/internal/streams/${st.id}/heartbeat`, { method: 'POST', headers: { authorization: `Bearer ${ENGINE_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ nodeId: 'e2e-node-1', sessionId: sessions[1].id, fencingToken: 1, status: 'live' }) });
   check('Heartbeat de un nodo desplazado → 409 (fencing)', stale.status === 409);
+  const recAfter = await waitFor('grabación continuada tras el relevo', async () => { const r = await A.ok('GET', `/v1/recordings/${recBefore.id}`); return r.status === 'recording' && r.segments > recBefore.segments ? r : null; }, 60_000, 2000);
+  const recM3u = (await A.req('GET', `/v1/recordings/${recBefore.id}/playlist.m3u8`)).text;
+  const recOpen = (await A.ok('GET', '/v1/recordings')).items.filter((x: any) => x.status === 'recording');
+  check('El relevo de nodo continúa la MISMA grabación (con marca de discontinuidad), sin partirla', recOpen.length === 1 && recOpen[0].id === recBefore.id && recM3u.includes('#EXT-X-DISCONTINUITY'),
+    `${recBefore.segments} → ${recAfter.segments} fragmentos · ${recOpen.length} grabación(es) abiertas`);
+  await A.ok('PATCH', `/v1/streams/${st.id}`, { recordingMode: 'off' });
 
   step('H5 · Cuota de emisiones simultáneas');
   d1(`UPDATE organizations SET plan = 'restricted' WHERE id = '${regA.organization.id}'`);

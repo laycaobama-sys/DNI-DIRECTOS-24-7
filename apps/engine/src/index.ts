@@ -12,6 +12,7 @@ import path from 'node:path';
 import type { MediaJob, StreamAssignment } from '@dni/shared';
 import { api, cfg, log, runProcess, sleep } from './core';
 import { processMediaJob } from './media';
+import { processRecordingExport } from './export';
 import { type Relay, openRelay, parseTarget } from './relay';
 import { StreamRunner } from './playout';
 
@@ -36,7 +37,7 @@ async function streamLoop() {
   while (!shuttingDown) {
     try {
       const { assignment, engineSha } = await api<{ assignment: StreamAssignment | null; engineSha?: string }>('POST', '/internal/streams/claim',
-        { nodeId: cfg.nodeId, hostname: hostname(), version: `${cfg.version}${egress}`.slice(0, 40), capacity: cfg.capacity, running: updating ? cfg.capacity : runners.size });
+        { nodeId: cfg.nodeId, hostname: hostname(), version: `${cfg.version}${egress}`.slice(0, 40), capacity: cfg.capacity, running: updating ? cfg.capacity : runners.size, engineSha: ownSha ?? undefined });
       if (ownSha && engineSha && engineSha !== ownSha && !updating) void selfUpdate(engineSha);
       if (assignment && !shuttingDown) {
         // Nunca dos runners del mismo canal en un nodo: el anterior se detiene antes de arrancar el nuevo.
@@ -64,7 +65,7 @@ async function mediaLoop() {
     if (updating) { await sleep(1000); continue; }
     try {
       job = (await api<{ job: MediaJob | null }>('POST', '/internal/media-jobs/claim', { nodeId: cfg.nodeId })).job;
-      if (job) { activeMediaJobs++; try { await processMediaJob(job); } finally { activeMediaJobs--; } }
+      if (job) { activeMediaJobs++; try { await (job.type === 'recording_export' ? processRecordingExport(job) : processMediaJob(job)); } finally { activeMediaJobs--; } }
     } catch (e) {
       log.warn(`media loop: ${e instanceof Error ? e.message : e}`);
     }

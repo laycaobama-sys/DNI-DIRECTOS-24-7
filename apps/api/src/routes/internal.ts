@@ -9,9 +9,10 @@ import { z } from 'zod';
 import { engineNodes } from '../engine-node';
 import { setSetting } from '../lib/settings';
 import { youtubeStatus } from './youtube';
-import { type HeartbeatResponse, type MediaJob, type StreamAssignment, type StreamConfigRefresh, UPLOAD_PART_SIZE, heartbeatSchema, joinRtmp, mediaResultSchema, redactRtmp } from '@dni/shared';
+import { type HeartbeatResponse, type MediaJob, type ProfileId, type StreamAssignment, type StreamConfigRefresh, UPLOAD_PART_SIZE, heartbeatSchema, joinRtmp, mediaResultSchema, redactRtmp } from '@dni/shared';
 import { type AppEnv, type Env, HttpError, addEvent, all, decryptSecret, first, newId, notFound, parseBody, run, timingSafeEqual } from '../lib/core';
 import { type StreamRow, configRevision, resolvePlaylist, streamDestinations } from './streams';
+import { claimRecordingExport, registerInternalRecordingRoutes } from './recordings';
 
 const MEDIA_LEASE_MS = 10 * 60_000;
 const MAX_MEDIA_ATTEMPTS = 3;
@@ -59,6 +60,7 @@ async function failStream(env: Env, s: StreamRow, reason: string) {
 
 export const internal = new Hono<AppEnv>();
 internal.use('*', engineAuth);
+registerInternalRecordingRoutes(internal);
 
 /** Diagnóstico de los nodos de Cloudflare Containers (operación). `?action=restart` reinicia con apagado ordenado. */
 internal.get('/engine/nodes', async (c) => {
@@ -122,9 +124,11 @@ internal.post('/media-jobs/claim', async (c) => {
      RETURNING id, media_id, profile, attempts`, now + MEDIA_LEASE_MS, now, MAX_MEDIA_ATTEMPTS);
   if (v) {
     const a = await first<{ filename: string; size_bytes: number }>(c.env.DB, 'SELECT filename, size_bytes FROM media_assets WHERE id = ? AND deleted_at IS NULL', v.media_id);
-    if (a) return c.json({ job: { type: 'variant', mediaId: v.media_id, variantId: v.id, filename: a.filename, sizeBytes: a.size_bytes, profile: v.profile as MediaJob['profile'] } satisfies MediaJob });
+    if (a) return c.json({ job: { type: 'variant', mediaId: v.media_id, variantId: v.id, filename: a.filename, sizeBytes: a.size_bytes, profile: v.profile as ProfileId } satisfies MediaJob });
     await run(c.env.DB, 'DELETE FROM media_variants WHERE id = ?', v.id);
   }
+  const rec = await claimRecordingExport(c.env);
+  if (rec) return c.json({ job: rec satisfies MediaJob });
   return c.json({ job: null });
 });
 
@@ -228,13 +232,17 @@ internal.get('/variants/:vid/file', async (c) => {
 // ───────────────────────── Emisión ─────────────────────────
 
 internal.post('/streams/claim', async (c) => {
-  const b = await parseBody(c, z.object({ nodeId: z.string().min(1).max(64), hostname: z.string().max(120).optional(), version: z.string().max(40).optional(), capacity: z.number().int().min(0).max(1000), running: z.number().int().min(0) }));
+  const b = await parseBody(c, z.object({ nodeId: z.string().min(1).max(64), hostname: z.string().max(120).optional(), version: z.string().max(40).optional(), capacity: z.number().int().min(0).max(1000), running: z.number().int().min(0), engineSha: z.string().length(64).optional() }));
   const now = Date.now();
   await run(c.env.DB, `INSERT INTO worker_nodes (id, hostname, version, capacity, running, last_seen_at) VALUES (?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET hostname = excluded.hostname, version = excluded.version, capacity = excluded.capacity, running = excluded.running, last_seen_at = excluded.last_seen_at`,
     b.nodeId, b.hostname ?? null, b.version ?? null, b.capacity, b.running, now);
   await reconcile(c.env);
   if (b.running >= b.capacity) return c.json({ assignment: null, engineSha: engineSha(c.env) });
+  // Un motor desactualizado (recién desplegada otra versión) no acepta emisiones nuevas: primero se actualiza.
+  // Así la primera emisión tras un despliegue no sufre el corte de la auto-actualización.
+  const current = engineSha(c.env);
+  if (b.engineSha && current && b.engineSha !== current) return c.json({ assignment: null, engineSha: current });
 
   const sessionId = newId('ses');
   const s = await first<StreamRow & { prev_status: string }>(c.env.DB,
@@ -317,6 +325,9 @@ internal.post('/streams/:id/heartbeat', async (c) => {
     command: s.desired_state === 'stopped' || s.status === 'suspended' ? 'stop' : 'continue',
     restartNonce: s.restart_nonce,
     configRevision: await configRevision(c.env, s),
+    recording: (s as StreamRow & { recording_mode?: string }).recording_mode === 'auto' ? 'auto' : 'off',
+    recordingSegmentSec: Math.min(300, Math.max(2, Number(c.env.RECORDING_SEGMENT_SEC) || 60)),
+    previewWanted: ((s as StreamRow & { preview_until?: number | null }).preview_until ?? 0) > now,
   };
   return c.json(res);
 });

@@ -3,6 +3,7 @@ import { UPLOAD_PART_SIZE, uploadIntentSchema } from '@dni/shared';
 import { type AppEnv, type Env, HttpError, all, audit, first, newId, notFound, parseBody, run } from '../lib/core';
 import { wakeEngines } from '../engine-node';
 import { planOf, requireAuth } from './auth';
+import { serveRange } from './recordings';
 
 const ALLOWED_EXT = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'mp3', 'wav', 'aac', 'm4a', 'png', 'jpg', 'jpeg', 'webp'];
 
@@ -13,11 +14,14 @@ export interface MediaRow {
   error_message: string | null; created_at: number; sha256: string | null;
 }
 
-export const mediaDto = (m: MediaRow & { has_thumb?: number }) => ({
+export const mediaDto = (m: MediaRow & { has_thumb?: number; custom_thumbnail_key?: string | null }) => ({
   id: m.id, filename: m.filename, kind: m.kind, status: m.status, sizeBytes: m.size_bytes, durationSec: m.duration_sec,
   width: m.width, height: m.height, fps: m.fps, videoCodec: m.video_codec, audioCodec: m.audio_codec, hasAudio: m.has_audio === null ? null : !!m.has_audio,
   progress: m.progress, error: m.error_code ? { code: m.error_code, message: m.error_message } : null, createdAt: m.created_at,
-  hasThumbnail: !!m.has_thumb,
+  hasThumbnail: !!m.has_thumb || !!m.custom_thumbnail_key,
+  customThumbnail: !!m.custom_thumbnail_key,
+  /** Cambia al poner otra miniatura: sirve para refrescar la caché del navegador. */
+  thumbVersion: m.custom_thumbnail_key ? m.custom_thumbnail_key.slice(-15) : null,
 });
 
 /** Nombre solo para mostrar: nunca forma parte de rutas de almacenamiento. */
@@ -110,10 +114,18 @@ media.get('/:id', requireAuth(), async (c) => c.json(mediaDto(await getOwned(c.e
 
 media.get('/:id/thumbnail', requireAuth(), async (c) => {
   const m = await getOwned(c.env, c.get('auth').orgId, c.req.param('id'));
-  const v = await first<{ r2_key: string }>(c.env.DB, "SELECT r2_key FROM media_variants WHERE media_id = ? AND kind = 'thumbnail' AND status = 'ready'", m.id);
+  const custom = (m as MediaRow & { custom_thumbnail_key?: string | null }).custom_thumbnail_key;
+  const v = custom ? { r2_key: custom } : await first<{ r2_key: string }>(c.env.DB, "SELECT r2_key FROM media_variants WHERE media_id = ? AND kind = 'thumbnail' AND status = 'ready'", m.id);
   const obj = v && (await c.env.MEDIA.get(v.r2_key));
   if (!obj) throw notFound('Miniatura');
-  return new Response(obj.body, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=3600' } });
+  return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType ?? 'image/jpeg', 'cache-control': 'private, max-age=3600' } });
+});
+
+/** Reproducción del vídeo (versión de emisión si existe; si no, el original) con Range: vista previa y captura de fotogramas. */
+media.get('/:id/play', requireAuth(), async (c) => {
+  const m = await getOwned(c.env, c.get('auth').orgId, c.req.param('id'));
+  const v = await first<{ r2_key: string }>(c.env.DB, "SELECT r2_key FROM media_variants WHERE media_id = ? AND kind = 'canonical' AND status = 'ready' ORDER BY created_at DESC LIMIT 1", m.id);
+  return serveRange(c.env, v?.r2_key ?? m.r2_key, c.req.raw, v ? 'video/mp4' : (m as MediaRow & { content_type?: string | null }).content_type || 'video/mp4');
 });
 
 media.post('/:id/retry', requireAuth('editor'), async (c) => {

@@ -83,7 +83,10 @@ export const streamCreateSchema = z.object({
   profile: z.enum(PROFILE_IDS).default('720p30'),
   destinationIds: z.array(z.string().min(1).max(64)).max(10).default([]),
 });
-export const streamUpdateSchema = streamCreateSchema.partial();
+export const streamUpdateSchema = streamCreateSchema.partial().extend({
+  recordingMode: z.enum(['off', 'auto']).optional(),
+  recordingRetentionDays: z.number().int().min(1).max(90).optional(),
+});
 
 export const scheduleCreateSchema = z.object({
   streamId: z.string().min(1).max(64),
@@ -150,6 +153,11 @@ export interface HeartbeatResponse {
   restartNonce: number;
   /** Cambia cuando se publica otra versión de playlist o se modifican destinos: el motor debe refrescar. */
   configRevision: string;
+  /** Grabación en la nube de la sesión. */
+  recording?: 'off' | 'auto';
+  recordingSegmentSec?: number;
+  /** Alguien está mirando la vista previa en directo. */
+  previewWanted?: boolean;
 }
 
 export interface StreamConfigRefresh {
@@ -159,7 +167,9 @@ export interface StreamConfigRefresh {
 }
 export type MediaJob =
   | { type: 'ingest'; mediaId: string; filename: string; sizeBytes: number; profile: ProfileId }
-  | { type: 'variant'; mediaId: string; variantId: string; filename: string; sizeBytes: number; profile: ProfileId };
+  | { type: 'variant'; mediaId: string; variantId: string; filename: string; sizeBytes: number; profile: ProfileId }
+  /** Exporta una grabación (fragmentos MPEG-TS) a un MP4 descargable, sin recodificar. */
+  | { type: 'recording_export'; recordingId: string; segments: number[]; totalBytes: number };
 export const mediaResultSchema = z.discriminatedUnion('ok', [
   z.object({
     ok: z.literal(true),

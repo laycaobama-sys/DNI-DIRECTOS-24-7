@@ -1,7 +1,7 @@
 import { type ReactNode, Suspense, lazy, useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, Crown, FolderOpen, LayoutDashboard, ListVideo, LogOut, Menu, Radio, Send, Settings, X } from 'lucide-react';
+import { CalendarClock, Clapperboard, Crown, FolderOpen, LayoutDashboard, ListVideo, LogOut, Menu, Radio, Send, Settings, X } from 'lucide-react';
 import { ApiError, api, get, type Stream } from './api';
 import { Logo, ThemeToggle } from './brand';
 import { useAuthConfig, useMe } from './hooks';
@@ -19,6 +19,7 @@ const Streams = lazy(() => import('./pages/Streams').then((m) => ({ default: m.S
 const StreamNew = lazy(() => import('./pages/Streams').then((m) => ({ default: m.StreamNew })));
 const StreamDetail = lazy(() => import('./pages/Streams').then((m) => ({ default: m.StreamDetail })));
 const Schedule = lazy(() => import('./pages/Schedule'));
+const Recordings = lazy(() => import('./pages/Recordings'));
 const SettingsPage = lazy(() => import('./pages/Settings'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Legal = lazy(() => import('./pages/Legal'));
@@ -29,6 +30,7 @@ const NAV = [
   { to: '/app/library', label: 'Biblioteca', icon: FolderOpen },
   { to: '/app/playlists', label: 'Playlists', icon: ListVideo },
   { to: '/app/destinations', label: 'Destinos', icon: Send },
+  { to: '/app/recordings', label: 'Grabaciones', icon: Clapperboard },
   { to: '/app/schedule', label: 'Programación', icon: CalendarClock },
   { to: '/app/settings', label: 'Ajustes', icon: Settings },
 ];
@@ -159,6 +161,7 @@ export function App() {
         <Route path="streams/new" element={<StreamNew />} />
         <Route path="streams/:id" element={<StreamDetail />} />
         <Route path="schedule" element={<Schedule />} />
+        <Route path="recordings" element={<Recordings />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<NotFound />} />

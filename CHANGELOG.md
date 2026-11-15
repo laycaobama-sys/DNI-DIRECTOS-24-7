@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-11-15
+- **Monitor del directo**: imagen y sonido reales de la señal de salida (HLS, sin recodificar), vúmetros L/R con RMS y
+  pico, alerta de silencio (> 5 s por debajo de −50 dBFS) y de saturación, resolución, FPS, bitrate y retraso medidos en
+  el reproductor, imagen en imagen y pantalla completa. El motor solo genera la vista previa mientras alguien la mira.
+- **Grabación automática en la nube** por emisión (se activa en pleno directo): fragmentos MPEG-TS de 60 s subidos a R2
+  por partes mientras se graba (un fallo pierde como mucho un fragmento), reproducible durante la grabación, exportación
+  a MP4 (+faststart) en segundo plano, enlace de descarga firmado con caducidad, retención configurable y borrado por cron.
+- **Miniaturas en todo** (vídeos, playlists, emisiones y grabaciones) con **estudio de miniaturas**: fondo propio, fotograma
+  del vídeo o degradado, plantillas, título/subtítulo con contorno y sombra, logotipo, distintivo, zona segura de YouTube y
+  JPG 1280×720 < 2 MB. La de la emisión se envía sola a YouTube (`thumbnails.set`) en los destinos de «YouTube con un clic».
+- Mensajes de corte de destino más precisos: un corte del servidor de ingesta tras horas emitiendo ya no culpa a la clave.
+- Un relevo de nodo continúa la MISMA grabación (con marca de discontinuidad) en vez de partirla en dos.
+- Corregido (solo ocurría en R2 real): las partes de la subida multipart de la grabación ahora miden exactamente 8 MiB.
+- Un motor desactualizado tras un despliegue ya no acepta emisiones nuevas hasta actualizarse (evita un corte al arrancar).
+- Verificado en producción (Cloudflare): vista previa HLS, fragmento de 60,0 s grabado en R2 (26,5 MB), reproducción con
+  Range, exportación a MP4 y miniatura (`smoke-prod --egress`: 29/29). e2e local: 63/63.
+- Documentación: `docs/AUDIT_2026-11.md` (auditoría del directo de 10 h) y `docs/PRICING_STRATEGY.md` (precios).
+
 ## 0.4.2 — 2026-11-14
 - **Causa raíz de «no conecta con YouTube» confirmada en Cloudflare**: el FFmpeg estático 6.1.1 (johnvansickle) se
   estrella con SIGSEGV en la cadena MPEG-TS por tubería → copia a FLV (también con vídeo sintético, sin red). El

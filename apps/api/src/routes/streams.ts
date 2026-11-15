@@ -10,6 +10,7 @@ export interface StreamRow {
   status: StreamStatus; status_reason: string | null; desired_state: 'running' | 'stopped'; restart_nonce: number;
   lease_owner: string | null; lease_expires_at: number | null; fencing_token: number; current_session_id: string | null;
   position: string | null; metrics: string | null; last_heartbeat_at: number | null; started_at: number | null; created_at: number; updated_at: number;
+  recording_mode?: string; recording_retention_days?: number; thumbnail_key?: string | null; thumbnail_updated_at?: number | null;
 }
 
 export const getStream = async (env: Env, orgId: string, id: string) => {
@@ -72,6 +73,7 @@ async function dto(env: Env, s: StreamRow) {
   const pos = s.position ? (JSON.parse(s.position) as { cycle: number; position: number; mediaId: string | null; playlistVersionId: string }) : null;
   const now = Date.now();
   const engineOnline = !!s.lease_owner && (s.lease_expires_at ?? 0) > now;
+  const rec = s.current_session_id ? await first<{ id: string; duration_sec: number; size_bytes: number }>(env.DB, "SELECT id, duration_sec, size_bytes FROM recordings WHERE session_id = ? AND status = 'recording'", s.current_session_id) : null;
   const np = pos?.mediaId && isActive(s.status) ? await first<{ filename: string }>(env.DB, 'SELECT filename FROM media_assets WHERE id = ?', pos.mediaId) : null;
   return {
     id: s.id, name: s.name, playlistId: s.playlist_id, playlistName: pl?.name ?? null, mode: s.mode, profile: s.profile,
@@ -87,6 +89,8 @@ async function dto(env: Env, s: StreamRow) {
       state: engineOnline ? d.state : 'idle', bitrateKbps: engineOnline ? d.bitrate_kbps : null, outTimeSec: engineOnline ? d.out_time_sec : null,
       restarts: d.restarts, lastError: d.last_error,
     })),
+    recording: { mode: s.recording_mode === 'auto' ? 'auto' : 'off', retentionDays: s.recording_retention_days ?? 7, active: rec ? { id: rec.id, durationSec: rec.duration_sec, sizeBytes: rec.size_bytes } : null },
+    thumbnail: s.thumbnail_key ? { updatedAt: s.thumbnail_updated_at ?? null } : null,
     createdAt: s.created_at, updatedAt: s.updated_at,
   };
 }
@@ -187,8 +191,10 @@ streams.patch('/:id', requireAuth('editor'), async (c) => {
     if (live && !b.destinationIds.length) throw new HttpError(422, 'no_destinations', 'Un stream en emisión necesita al menos un destino.');
     await setDestinations(c.env, s, b.destinationIds, plan.maxDestinationsPerStream);
   }
-  await run(c.env.DB, 'UPDATE streams SET name = ?, playlist_id = ?, mode = ?, profile = ?, updated_at = ? WHERE id = ?',
-    b.name ?? s.name, b.playlistId ?? s.playlist_id, b.mode ?? s.mode, b.profile ?? s.profile, Date.now(), s.id);
+  await run(c.env.DB, 'UPDATE streams SET name = ?, playlist_id = ?, mode = ?, profile = ?, recording_mode = ?, recording_retention_days = ?, updated_at = ? WHERE id = ?',
+    b.name ?? s.name, b.playlistId ?? s.playlist_id, b.mode ?? s.mode, b.profile ?? s.profile, b.recordingMode ?? s.recording_mode ?? 'off', b.recordingRetentionDays ?? s.recording_retention_days ?? 7, Date.now(), s.id);
+  // La grabación puede activarse o desactivarse en directo: el motor lo aplica en su siguiente latido (≈3 s).
+  if (b.recordingMode && b.recordingMode !== (s.recording_mode ?? 'off')) await audit(c, b.recordingMode === 'auto' ? 'stream.recording_on' : 'stream.recording_off', s.id);
   return c.json(await dto(c.env, await getStream(c.env, orgId, s.id)));
 });
 
