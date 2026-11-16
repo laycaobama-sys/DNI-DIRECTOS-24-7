@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Instala un nodo de emisión de DNI Directos en un servidor dedicado (Ubuntu 24.04 / Debian 12).
-# Uso (como root):  bash install.sh https://TU-DOMINIO  nombre-del-nodo  [capacidad]
+# Uso (como root):  bash install.sh https://TU-DOMINIO  nombre-del-nodo  [capacidad]  [all|stream]
+#   «stream» = solo emite (para VPS pequeños o gratuitos); la conversión de vídeos sigue en Cloudflare.
 # Después, pega el ENGINE_TOKEN en /etc/dni-node.env (nunca lo compartas) y arranca:  systemctl start dni-node
 set -euo pipefail
 API_URL="${1:?Indica la URL de la plataforma, p. ej. https://dni-directos.ejemplo.com}"
 NODE_ID="${2:-dedicado-1}"
 CAPACITY="${3:-60}"
+ROLE="${4:-all}"
+if [[ "$ROLE" != all && "$ROLE" != stream ]]; then echo "El rol debe ser all o stream"; exit 1; fi
 
 if [[ "$NODE_ID" == cf-node-* ]]; then echo "El nombre no puede empezar por cf-node- (reservado a Cloudflare)"; exit 1; fi
 
@@ -27,6 +30,7 @@ ENGINE_TOKEN=PEGA_AQUI_EL_ENGINE_TOKEN
 NODE_ID=$NODE_ID
 CAPACITY=$CAPACITY
 MEDIA_CONCURRENCY=2
+ENGINE_ROLE=$ROLE
 DATA_DIR=/var/lib/dni-node
 EOF
   chmod 600 /etc/dni-node.env

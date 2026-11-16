@@ -59,15 +59,27 @@ Ya está implementado:
 - La API da prioridad a los nodos dedicados: Cloudflare cede durante 20 s las emisiones nuevas cuando hay un nodo
   dedicado con capacidad libre, y solo despierta contenedores para lo que no cabe.
 
-### Dónde comprar y qué servidor
-| Opción | Precio aprox. | Red | Para qué |
-|---|---|---|---|
-| **Hetzner AX41-NVMe** (dedicado, Alemania/Finlandia) — **recomendado** | ~59 €/mes, sin cuota de alta | 1 Gbit/s, tráfico ilimitado | Producción: ~60–80 emisiones 1080p o ~35 en 4K |
-| OVH Kimsufi KS-4 (dedicado) — el más barato | ~19 $/mes | 500 Mbit/s, tráfico ilimitado | Empezar: ~30–40 emisiones 1080p |
-| Hetzner Cloud CPX21/CX32 (VPS) | 8–10 €/mes | 20 TB/mes incluidos | Pruebas; ~6 emisiones 1080p 24/7 sin pasarse de tráfico |
+### Dónde comprar y qué servidor (precios sin IVA, consultados el 16-11-2026)
+| Etapa | Servidor | Precio | Red | Capacidad aprox. | Enlace |
+|---|---|---|---|---|---|
+| Probar gratis | Oracle Cloud Always Free (Ampere A1, 2 OCPU, 12 GB, ARM) | 0 € | 10 TB/mes de salida gratis | ~4 emisiones 1080p 24/7 | https://www.oracle.com/cloud/free/ |
+| **Empezar con clientes (recomendado)** | Hetzner Cloud **CPX22** (2 vCPU, 4 GB) en Helsinki | 16,99 €/mes | 20 TB/mes incluidos (+1 €/TB) | ~8 emisiones 1080p 24/7 | https://www.hetzner.com/cloud/regular-performance/ |
+| Crecer (> 8 emisiones) | Hetzner **AX41** dedicado (Ryzen 5 3600, 64 GB, 2×512 GB NVMe) | 59 €/mes, sin alta | 1 Gbit/s, tráfico ilimitado | ~60–80 emisiones 1080p o ~25–35 en 4K | https://www.hetzner.com/dedicated-rootserver/ax41/configurator/ |
+| Copia de seguridad externa | Hetzner Storage Box BX11 (1 TB, 10 instantáneas) | 3,20 €/mes | — | — | https://www.hetzner.com/storage/storage-box/bx11/ |
 
-Precios consultados en noviembre de 2026: compruébalos al contratar. Se compra en hetzner.com → Dedicated → Server
-Auction/AX, o en kimsufi.com. Elige Ubuntu 24.04.
+- OVH Kimsufi ya no compensa: el más barato disponible (KS-A) cuesta 54,99 €/mes + 54,99 € de alta con solo 100 Mbit/s.
+- Oracle gratis: puede quedarse sin capacidad en la región y Oracle reclama instancias que considere inactivas
+  (CPU, red y memoria < 20 % durante 7 días). Si lo reclama, las emisiones pasan solas a Cloudflare y no se pierde nada.
+- En VPS pequeños o gratuitos instala el nodo con el rol `stream` (solo emite; las conversiones siguen en Cloudflare).
+- Cuenta: https://accounts.hetzner.com/signUp · panel: https://console.hetzner.com/
+
+### Qué pasa si un servidor falla (no se pierde nada)
+- Los datos **no viven en los servidores de emisión**: vídeos, grabaciones y miniaturas están en Cloudflare R2
+  (durabilidad del 99,999999999 %); usuarios, playlists, destinos y claves cifradas en Cloudflare D1, con Time Travel
+  (restaurar a cualquier minuto de los últimos 30 días con el plan Workers Paid).
+- Si un nodo dedicado se cae o se borra, otro nodo o Cloudflare Containers retoma sus emisiones en segundos, cerca del
+  punto de la playlist donde iban (relevo con «fencing»; ya implementado).
+- Copia externa adicional recomendada: exportación diaria de D1 y copia de R2 a la Storage Box (pendiente de automatizar).
 
 Cálculo de capacidad (el motor **no recodifica** al emitir: copia el vídeo ya preparado, así que el límite es la red):
 - 1080p30 ≈ 6,2 Mbit/s por destino · 1080p60 ≈ 9,2 · 4K ≈ 20,2 · 720p ≈ 3,2.
@@ -78,7 +90,8 @@ Cálculo de capacidad (el motor **no recodifica** al emitir: copia el vídeo ya 
 ### Instalación (10 minutos)
 ```bash
 # En el servidor nuevo (como root), con el repositorio copiado:
-bash deploy/dedicated-node/install.sh https://TU-DOMINIO dedicado-1 60
+bash deploy/dedicated-node/install.sh https://TU-DOMINIO dedicado-1 60          # AX41 (emite y convierte)
+bash deploy/dedicated-node/install.sh https://TU-DOMINIO vps-1 8 stream        # CPX22 u Oracle gratis (solo emite)
 nano /etc/dni-node.env      # sustituye PEGA_AQUI_EL_ENGINE_TOKEN por tu ENGINE_TOKEN (no lo compartas)
 systemctl start dni-node && journalctl -u dni-node -f
 ```
